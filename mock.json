@@ -1,0 +1,17 @@
+{
+    "menus": [
+        {
+            "name" : "编程相关",
+            "child_menus": [
+                {
+                    "name": "PHP Environment Setup",
+                    "content": "### PHP Environment Setup\n\nTo set up the PHP environment, follow these steps:\n\n1. Install PHP: \n~~~sh\nbrew install php\n~~~\n\n2. Verify installation:\n\n~~~\nphp -v\n~~~\n\n3. Set up a local server:\n\n~~~\nphp -S localhost:8000\n~~~"
+                },
+                {
+                    "name": "Node.js Environment Setup",
+                    "content": "### Node.js Environment Setup\n\nTo set up the Node.js environment, follow these steps:\n\n1. Install Node.js and npm:\n\n~~~\nbrew install node\n~~~\n\n2. Verify installation:\n\n~~~\nnode -v\n~~~\n\n3. Install common packages:\n\n~~~\nnpm install express\n~~~"
+                }
+            ]
+        }
+    ]
+}
