@@ -1,4 +1,4 @@
-pyinstaller --onefile --windowed --name=DevTools --icon=path/to/icon.icns path/to/your_script.py
 
-
-pyinstaller --onefile --windowed --name=DevTools ./main.py
+## 构建
+> --icon=path/to/icon.icns 
+pyinstaller --onefile --windowed --name=DevTools --add-data=mock.json:. ./main.py

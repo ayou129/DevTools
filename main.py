@@ -1,313 +1,329 @@
-import sys, json, subprocess, os
-from markdown import markdown
-from PySide6.QtCore import Qt, QProcess
-from PySide6.QtGui import QClipboard, QAction
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QMenuBar, QMenu, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QTextEdit, QSplitter, QLineEdit, QPushButton, QMessageBox, QDialog, QHBoxLayout, QTextEdit, QLabel
-from PySide6.QtGui import QShortcut, QKeySequence, QTextCursor, QTextDocument
+import sys
+from PySide6.QtWidgets import QApplication, QMainWindow, QSplitter, QTextEdit, QTabWidget, QPushButton, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QInputDialog, QListWidget, QDialog, QLineEdit, QFormLayout, QSpinBox, QComboBox, QDialogButtonBox,QCheckBox,QFileDialog, QSizePolicy
+from PySide6.QtGui import QIcon, QFont
+from PySide6.QtCore import Qt, QTimer
+from driver import format_system_info, format_network_info, get_ip_address
 
 
-class MyWindow(QMainWindow):
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.init_ui()
-        self.init_terminal()
 
-    def init_ui(self):
-        # 设置窗口标题和大小
-        self.setWindowTitle("DevTools")
-        self.setGeometry(100, 100, 800, 600)
+        # base setting
+        self.setWindowTitle("开发者工具")
+        self.setWindowIcon(QIcon("icon.png"))
+        self.resize(800, 600)
 
-        # 创建菜单栏
-        menu_bar = QMenuBar(self)
-        self.setMenuBar(menu_bar)
+        # 创建主布局
+        main_layout = QVBoxLayout()
+        main_widget = QWidget()
+        main_widget.setLayout(main_layout)
+        self.setCentralWidget(main_widget)
 
-        # 创建菜单
-        menu = QMenu("菜单", self)
-        menu_bar.addMenu(menu)
+        # 创建左侧窗口
+        self.left_widget = QWidget()
+        self.left_layout = QVBoxLayout()
+        self.left_widget.setLayout(self.left_layout)
+        self.left_widget.setFixedWidth(130)  # 根据需要调整宽度
 
-        # 创建菜单项
-        open_terminal_action = QAction("打开终端", self)
-        open_terminal_action.triggered.connect(self.show_terminal)
-        menu.addAction(open_terminal_action)
+        self.left_init_title = QLabel("Driver init...")
+        self.left_layout.addWidget(self.left_init_title)
 
-        # ------------------- menus --------------
-        # 创建主分割器
+        self.ip_widget = QLabel()
+        self.ip_widget.setFixedHeight(17)
+        self.left_layout.addWidget(self.ip_widget)
+
+        # 创建主机信息按钮
+        self.host_info_button = QPushButton("主机信息")
+        # self.host_info_button.setFixedHeight(30)
+        self.host_info_button.clicked.connect(self.show_host_info)
+        self.host_info_button.setVisible(False)  # 初始情况下隐藏按钮
+        self.left_layout.addWidget(self.host_info_button)
+
+        # 创建用于显示主机信息和网络信息的布局
+        self.host_info_layout = QVBoxLayout()
+
+        self.system_info_widget = QLabel()
+        # self.system_info_widget.setReadOnly(True)
+        self.system_info_widget.setVisible(False)
+        self.left_layout.addWidget(self.system_info_widget)
+
+        self.network_info_widget = QLabel()
+        self.network_info_widget.setFixedHeight(60)
+        # self.network_info_widget.setReadOnly(True)
+        self.network_info_widget.setVisible(False)
+        self.left_layout.addWidget(self.network_info_widget)
+
+
+        # 设置定时器，每隔1秒刷新一次信息
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh_info)
+        self.timer.start(1000)  # 设置计时器为1秒
+
+        self.left_layout.addWidget(QLabel())
+
+        # 创建分割器
         splitter = QSplitter(Qt.Horizontal)
 
-        # 创建左侧菜单栏
-        left_panel = QWidget()
-        left_layout = QVBoxLayout()
-        left_panel.setLayout(left_layout)
+        # 将左侧窗口添加到分割器中
+        splitter.addWidget(self.left_widget)
+
+        # 右侧窗口
+        tab_widget = QTabWidget()
+
+        # 创建快速连接标签页
+        quick_connect_tab = QWidget()
+        quick_connect_layout = QVBoxLayout()
+        quick_connect_tab.setLayout(quick_connect_layout)
+
+        # 创建存档和添加主机的部分
+        saved_hosts = QListWidget()
+        saved_hosts.addItem("主机1")
+        saved_hosts.addItem("主机2")
+        saved_hosts.addItem("...")
+
+        # 添加新主机按钮
+        add_host_button = QPushButton("添加新主机")
+        add_host_button.clicked.connect(self.add_host)
+
+        # 清空和修改按钮
+        clear_button = QPushButton("清空")
+        clear_button.clicked.connect(lambda: saved_hosts.clear())
+
+        modify_button = QPushButton("修改指定主机")
+        modify_button.clicked.connect(lambda: self.modify_host(saved_hosts))
+
+        # 将组件添加到布局中
+        quick_connect_layout.addWidget(saved_hosts)
+        quick_connect_layout.addWidget(add_host_button)
+        quick_connect_layout.addWidget(clear_button)
+        quick_connect_layout.addWidget(modify_button)
+
+        # 将快速连接标签页添加到标签窗口中
+        tab_widget.addTab(quick_connect_tab, "快速连接")
+
+        # 创建三个按钮的容器
+        button_container = QWidget()
+        button_layout = QHBoxLayout()
+        button_container.setLayout(button_layout)
+
+        # 创建三个按钮
+        help_button = QPushButton("HELP")
+        help_button.clicked.connect(self.show_help)
+
+        file_button = QPushButton("文件管理")
+        # 为文件管理按钮添加逻辑
+        file_button.clicked.connect(self.file_management)
+
+        menu_button = QPushButton("菜单管理")
+        # 为菜单管理按钮添加逻辑
+        menu_button.clicked.connect(self.menu_management)
+
+        # 将按钮添加到容器中
+        button_layout.addWidget(help_button)
+        button_layout.addWidget(file_button)
+        button_layout.addWidget(menu_button)
 
 
-        # 创建菜单树
-        self.menu_tree = QTreeWidget()
-        self.menu_tree.setHeaderHidden(True)
+        # 将容器和按钮添加到标签窗口中
+        tab_widget.setCornerWidget(button_container, Qt.TopRightCorner)
 
-        # 将菜单树添加到左侧布局中
-        left_layout.addWidget(self.menu_tree)
-        splitter.addWidget(left_panel)
+        # 将标签窗口添加到分割器中
+        splitter.addWidget(tab_widget)
 
-        # 创建右侧内容区域
-        self.right_panel = QTextEdit()
-        self.right_panel.setReadOnly(True)
-        splitter.addWidget(self.right_panel)
+        # 将分割器添加到主布局中
+        main_layout.addWidget(splitter)
 
 
-        # 设置分割器的拉伸因子
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 3)
+        # 初始化认证布局
+        self.password_layout = QVBoxLayout()
+        self.username_input = QLineEdit()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_layout.addWidget(QLabel("用户名"))
+        self.password_layout.addWidget(self.username_input)
+        self.password_layout.addWidget(QLabel("密码"))
+        self.password_layout.addWidget(self.password_input)
 
-        # 将分割器设置为主窗口的中心小部件
-        self.setCentralWidget(splitter)
+        self.key_layout = QVBoxLayout()
+        self.private_key_input = QLineEdit()
+        self.browse_button = QPushButton("浏览...")
+        self.browse_button.clicked.connect(lambda: self.browse_file(self.private_key_input))
+        self.key_layout.addWidget(QLabel("私钥文件"))
+        self.key_layout.addWidget(self.private_key_input)
+        self.key_layout.addWidget(self.browse_button)
+    def refresh_info(self):
+        # 刷新 IP 地址
+        ip_address = get_ip_address()
+        if ip_address:
+            # 显示 IP 地址作为主机标题
+            self.left_init_title.setHidden(True)
+            self.ip_widget.setText(f"IP: {ip_address}")
 
-        # 读取 JSON 文件并设置菜单和内容
-        self.load_menus()
+            # 显示主机信息按钮
+            self.host_info_button.setVisible(True)
 
-        # 连接菜单点击事件
-        self.menu_tree.itemClicked.connect(self.on_menu_item_clicked)
-
-        # 调用自定义样式方法
-        self.set_styles()
-
-
-        # ------------------- search --------------
-        # 创建右上角搜索框
-        search_layout = QHBoxLayout()
-        self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("搜索...")
-        self.search_bar.hide()  # 默认隐藏
-
-        # 创建箭头按钮
-        self.search_up_button = QPushButton("↑")
-        self.search_down_button = QPushButton("↓")
-
-        # 默认隐藏箭头按钮
-        self.search_up_button.hide()
-        self.search_down_button.hide()
-
-        # 添加搜索框和箭头按钮到布局
-        search_layout.addWidget(self.search_bar)
-        search_layout.addWidget(self.search_up_button)
-        search_layout.addWidget(self.search_down_button)
-
-        # 将搜索框布局添加到主窗口的菜单区域
-        top_layout = QWidget()
-        top_layout.setLayout(search_layout)
-        self.setMenuWidget(top_layout)
-
-        # 连接搜索框文本更改事件
-        self.search_bar.textChanged.connect(self.search_content)
-
-        # 连接箭头按钮点击事件
-        self.search_up_button.clicked.connect(self.search_previous)
-        self.search_down_button.clicked.connect(self.search_next)
-
-        # 添加快捷键 Command + F
-        shortcut_search = QShortcut(QKeySequence("Ctrl+F"), self)
-        shortcut_search.activated.connect(self.toggle_search_bar)
-
-    def init_terminal(self):
-        # 初始化嵌入式终端
-        self.process = QProcess(self)
-        self.process.start("bash")  # 这里可以使用其他终端命令
-
-        # 监控终端输出
-        self.process.readyReadStandardOutput.connect(self.display_terminal_output)
-        self.process.readyReadStandardError.connect(self.display_terminal_output)
-
-    def display_terminal_output(self):
-        # 显示终端输出
-        output = self.process.readAllStandardOutput().data().decode()
-        error = self.process.readAllStandardError().data().decode()
-
-        # 显示输出和错误
-        if output:
-            self.text_edit.append(output)
-        if error:
-            self.text_edit.append(error)
-
-    def show_terminal(self):
-        # 初始化终端窗口
-        if self.terminal_widget is None:
-            self.terminal_widget = QTextEdit(self)
-            self.terminal_widget.setReadOnly(False)  # 设置为可编辑状态
-
-            # 将终端窗口添加到分割器
-            self.splitter.addWidget(self.terminal_widget)
-
-            # 连接终端输入和输出
-            self.process.readyReadStandardOutput.connect(self.display_terminal_output)
-            self.process.readyReadStandardError.connect(self.display_terminal_output)
-
-            # 设置用户输入的信号连接
-            self.terminal_widget.returnPressed.connect(self.send_command_to_terminal)
-
-        # 显示终端窗口
-        self.terminal_widget.show()
-        self.terminal_widget.setFocus()  # 聚焦到终端窗口
-
-    def send_command_to_terminal(self):
-        # 发送用户输入到终端
-        command = self.terminal_widget.toPlainText().strip()
-        if command:
-            self.process.write(command.encode() + b'\n')
-            # 清空输入框
-            self.terminal_widget.clear()
-
-    def insert_command_to_terminal(self):
-        # 插入选定的文本到终端
-        selected_text = self.text_edit.toPlainText()
-        # 使用QClipboard将文本复制到剪贴板
-        clipboard = QApplication.clipboard()
-        clipboard.setText(selected_text)
-        # 发送命令到终端
-        self.process.write(selected_text.encode() + b'\n')
-
-
-    def load_menus(self):
-        # 读取 JSON 文件中的菜单和内容
-        file_path = os.path.join(os.path.dirname(__file__), 'mock.json')
-        with open(file_path, 'r') as file:
-            data = json.load(file)
-
-        # 填充菜单树
-        for menu in data.get('menus', []):
-            menu_item = QTreeWidgetItem(self.menu_tree, [menu['name']])
-
-            # 将主菜单项默认展开
-            menu_item.setExpanded(True)
-
-            for child_menu in menu.get('child_menus', []):
-                child_item = QTreeWidgetItem(menu_item, [child_menu['name']])
-                child_item.setData(0, Qt.UserRole, child_menu['content'])
-
-
-    def on_menu_item_clicked(self, item, column):
-        # 获取所选菜单项的内容
-        content = item.data(0, Qt.UserRole)
-        if content:
-            self.display_content(content)
-
-    def display_content(self, content):
-        try:
-            # 使用 Markdown 格式呈现内容
-            # content = str(content)
-            # html_content = markdown(content)
-            html_content = markdown(content, extensions=['fenced_code'])
-            self.right_panel.setHtml(html_content)
-
-            # 检查并执行代码块
-            # self.execute_code_blocks(content)
-        except Exception as e:
-            print(f"Error displaying content: {str(e)}")
-
-
-
-    def extract_code_blocks(self, content):
-        # 提取内容中的代码块
-        lines = content.split('\n')
-        in_code_block = False
-        code_block = []
-        code_blocks = []
-
-        for line in lines:
-            if line.startswith('~~~'):
-                if in_code_block:
-                    # 结束代码块
-                    in_code_block = False
-                    code_blocks.append('\n'.join(code_block))
-                    code_block = []
-                else:
-                    # 开始代码块
-                    in_code_block = True
-            elif in_code_block:
-                code_block.append(line)
-
-        return code_blocks
-
-    def toggle_search_bar(self):
-        # 切换搜索框显示/隐藏
-        if self.search_bar.isVisible():
-            self.search_bar.hide()
-            self.search_up_button.hide()
-            self.search_down_button.hide()
+            # 更新网络信息
+            network_info_text = format_network_info()
+            self.network_info_widget.setText(network_info_text)
+            self.network_info_widget.setVisible(True)
         else:
-            self.search_bar.show()
-            self.search_bar.setFocus()
-            # 默认隐藏箭头按钮
-            self.search_up_button.hide()
-            self.search_down_button.hide()
+            # 隐藏主机信息按钮和网络信息
+            self.host_info_button.setVisible(False)
+            self.network_info_widget.setVisible(False)
+            self.left_init_title.setText("Init...")
 
-    def search_content(self, search_query):
-        # 进行文本查找
-        self.search_results = []
-        cursor = self.right_panel.document().find(search_query)
+    def show_host_info(self):
+        # 创建对话框
+        host_info_dialog = QDialog(self)
+        host_info_dialog.setWindowTitle("主机信息")
 
-        # 重置箭头按钮状态
-        self.search_up_button.setEnabled(False)
-        self.search_down_button.setEnabled(False)
-        self.search_up_button.hide()
-        self.search_down_button.hide()
+        # 创建布局
+        layout = QVBoxLayout()
+        info_label = format_system_info()
+        layout.addWidget(QLabel(info_label))
 
-        # 寻找所有匹配的搜索结果
-        while not cursor.isNull():
-            self.search_results.append(cursor)
-            cursor = self.right_panel.document().find(search_query, cursor)
+        # 将布局添加到对话框中
+        host_info_dialog.setLayout(layout)
 
-        # 如果找到搜索结果，设置箭头按钮为可用，并显示箭头按钮
-        if self.search_results:
-            self.search_index = 0
-            self.search_down_button.setEnabled(True)
-            self.search_up_button.setEnabled(True)
-            self.search_up_button.show()
-            self.search_down_button.show()
-            self.move_to_search_result(0)
+        # 调整对话框大小以适应内容
+        host_info_dialog.adjustSize()
+
+        host_info_dialog.exec()
+
+    def add_host(self):
+        # 创建添加新主机的对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle("添加新主机")
+
+        # 创建表单布局
+        form_layout = QFormLayout()
+
+        # 常规分类
+        name_input = QLineEdit()
+        host_input = QLineEdit()
+        port_input = QSpinBox()
+        port_input.setRange(1, 65535)  # 端口号的范围
+        form_layout.addRow("名称", name_input)
+        form_layout.addRow("主机", host_input)
+        form_layout.addRow("端口号", port_input)
+
+        # 认证分类
+        auth_method_select = QComboBox()
+        auth_method_select.addItems(["密码", "公钥"])
+        auth_layout = QVBoxLayout()
+
+        # 绑定认证方式选择事件
+        auth_method_select.currentIndexChanged.connect(self.toggle_auth_layout)
+
+        # 初始化布局
+        self.toggle_auth_layout(0)
+
+        form_layout.addRow("方法", auth_method_select)
+        form_layout.addRow(auth_layout)
+
+        # 高级分类
+        exec_channel_checkbox = QCheckBox("启用 Exec Channel")
+        form_layout.addRow(exec_channel_checkbox)
+
+        # 创建确认和取消按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(lambda: self.save_host(dialog, name_input.text(), host_input.text(), port_input.value(), auth_method_select.currentText(), self.username_input.text(), self.password_input.text(), self.private_key_input.text(), exec_channel_checkbox.isChecked()))
+        button_box.rejected.connect(dialog.reject)
+
+        # 添加表单布局和按钮框到对话框中
+        layout = QVBoxLayout()
+        layout.addLayout(form_layout)
+        layout.addWidget(button_box)
+        dialog.setLayout(layout)
+
+        # 显示对话框
+        dialog.exec()
+
+    def toggle_auth_layout(self, index):
+        # 确定要添加的布局
+        auth_layout = QVBoxLayout()
+        if index == 0:
+            # 替换布局为密码认证布局
+            auth_layout.addLayout(self.password_layout)
         else:
-            self.search_index = None
+            # 替换布局为公钥认证布局
+            auth_layout.addLayout(self.key_layout)
 
-    def move_to_search_result(self, index):
-        # 移动到特定的搜索结果位置
-        if 0 <= index < len(self.search_results):
-            self.search_index = index
-            cursor = self.search_results[index]
-            self.right_panel.setTextCursor(cursor)
+        # 清除当前布局中的所有小部件
+        form_layout = self.sender().parent().layout()
+        form_layout.itemAt(1).widget().layout().deleteLater()
 
-    def search_previous(self):
-        # 移动到上一个搜索结果
-        if self.search_index is not None and self.search_index > 0:
-            self.search_index -= 1
-            self.move_to_search_result(self.search_index)
+        # 在父布局中添加新的认证布局
+        form_layout.setWidget(1, auth_layout)
 
-    def search_next(self):
-        # 移动到下一个搜索结果
-        if self.search_index is not None and self.search_index < len(self.search_results) - 1:
-            self.search_index += 1
-            self.move_to_search_result(self.search_index)
+    def browse_file(self, input_widget):
+        # 打开文件对话框以选择私钥文件
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择私钥文件", filter="Private Key Files (*.pem *.ppk)")
+        if file_path:
+            input_widget.setText(file_path)
 
-    def set_styles(self):
-        # 自定义样式表
-        stylesheet = """
-        QTextEdit {
-            font-size: 12px; /* 设置默认字体大小 */
-            #color: red;
-        }
-        /* 代码块样式 */
-        pre {
-            background-color: #282c34; /* 设置代码块背景色 */
-            color: #abb2bf; /* 设置代码块字体颜色 */
-            padding: 10px; /* 设置代码块内边距 */
-            border-radius: 5px; /* 设置代码块圆角边框 */
-            border: 1px solid #61dafb; /* 设置代码块边框颜色 */
-            font-family: 'Fira Code', Consolas, 'Courier New', monospace; /* 设置代码块字体 */
-            font-size: 14px; /* 设置代码块字体大小 */
-        }
-        """
-        # 设置样式表到 right_panel
-        self.right_panel.setStyleSheet(stylesheet)
-# 主程序入口
+    def save_host(self, dialog, name, host, port, auth_method, username, password, private_key, exec_channel):
+        # 保存新主机的逻辑
+        # 您可以在此处实现将主机添加到连接管理器的逻辑
+        # 示例代码：打印主机信息
+        print(f"添加新主机: 名称={name}, 主机={host}, 端口号={port}, 认证方法={auth_method}, 用户名={username}, 密码={password}, 私钥={private_key}, 启用Exec Channel={exec_channel}")
+        # 完成后关闭对话框
+        dialog.accept()
+
+    # 修改指定主机逻辑
+    def modify_host(self, saved_hosts):
+        selected_items = saved_hosts.selectedItems()
+        if selected_items:
+            current_host = selected_items[0]
+            new_host, ok = QInputDialog.getText(self, "修改指定主机", f"当前主机: {current_host.text()}\n输入新主机地址:")
+            if ok:
+                current_host.setText(new_host)
+
+    #   HELP功能逻辑
+    def show_help(self):
+        # 创建帮助对话框
+        help_dialog = QDialog(self)
+        help_dialog.setWindowTitle("帮助")
+
+        # 创建布局
+        help_layout = QVBoxLayout()
+
+        # 创建文本编辑器用于显示帮助内容
+        help_text = QTextEdit()
+        help_text.setPlainText("这是帮助内容，以 Markdown 格式呈现。")
+        help_text.setReadOnly(True)
+
+        # 添加文本编辑器到布局中
+        help_layout.addWidget(help_text)
+
+        # 将布局设置为帮助对话框的布局
+        help_dialog.setLayout(help_layout)
+
+        # 显示帮助对话框
+        help_dialog.exec()
+
+    # 文件管理逻辑
+    def file_management(self):
+        # 实现文件管理功能的逻辑
+        # 这里可以根据您的需求添加具体的文件管理代码
+        print("文件管理功能")
+
+    # 菜单管理逻辑
+    def menu_management(self):
+        # 实现菜单管理功能的逻辑
+        # 这里可以根据您的需求添加具体的菜单管理代码
+        print("菜单管理功能")
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MyWindow()
+    # 设置默认字体
+    default_font = QFont()
+    default_font.setPointSize(10)  # 设置为您需要的字体大小
+
+    # 应用默认字体
+    app.setFont(default_font)
+
+    window = MainWindow()
     window.show()
     sys.exit(app.exec())
