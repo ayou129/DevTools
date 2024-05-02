@@ -1,10 +1,10 @@
-import sys, json
+import sys, json,paramiko
 from configparser import ConfigParser
 from message import Message
 from driver import format_system_info, format_network_info, get_ip_address
 from PySide6.QtWidgets import QApplication, QMainWindow, QSplitter, QTextEdit, QTabWidget, QPushButton, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QInputDialog, QListWidget, QDialog, QLineEdit, QFormLayout, QSpinBox, QComboBox, QDialogButtonBox,QCheckBox,QFileDialog, QSizePolicy, QMessageBox, QListWidgetItem
 from PySide6.QtGui import QIcon, QFont
-from PySide6.QtCore import Qt, QTimer, QProcess
+from PySide6.QtCore import Qt, QTimer, QThread, Signal
 
 
 class TerminalManager(QWidget):
@@ -15,6 +15,7 @@ class TerminalManager(QWidget):
 
         self.setWindowTitle("终端管理器")
         self.config = self.load_config()
+        self.ssh_clients = {}
         self.update_terminal_list_display()
 
     def load_config(self):
@@ -24,7 +25,6 @@ class TerminalManager(QWidget):
                 config = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             config = {"terminals": {}}
-
         return config
 
     def save_config(self):
@@ -54,12 +54,9 @@ class TerminalManager(QWidget):
 
     def set_terminal_info(self, name, host, port, auth_method, username="", password="", private_key=""):
         """添加或修改终端信息"""
-        # 检查终端名称是否已存在
         if name in self.config.get("terminals", {}):
-            # print("已存在")
-            return False
-        # print("不存在")
-        # 添加新的终端信息
+            return False  # 如果终端名称已存在，则返回 False
+
         self.config["terminals"][name] = {
             "name": name,
             "host": host,
@@ -69,10 +66,9 @@ class TerminalManager(QWidget):
             "password": password,
             "private_key": private_key
         }
-        # 保存配置
-        self.save_config()
-
+        self.save_config()  # 保存配置
         return True
+
     def init_ui(self):
         """初始化用户界面"""
         layout = QVBoxLayout()
@@ -143,20 +139,14 @@ class TerminalManager(QWidget):
             button_box.accepted.connect(lambda: self.save_terminal_entry_by_prikey(name_input, host_input, port_input, dialog, private_key_input))
             form_layout.addRow("", browse_button)
 
-        # 创建对话框按钮并连接信号槽
         button_box.rejected.connect(dialog.reject)
-
-        # 添加对话框按钮到布局
         form_layout.addWidget(button_box)
         dialog.setLayout(form_layout)
-
-        # 显示对话框
         dialog.exec()
 
 
     def save_terminal_entry_by_pwd(self, name, host, port, dialog, username_input, password_input):
         """保存基于密码认证的终端条目"""
-        # 创建终端条目字典
         terminal_entry = {
             "name": name.text(),
             "host": host.text(),
@@ -166,25 +156,20 @@ class TerminalManager(QWidget):
             "password": password_input.text(),
             "private_key_file": None
         }
-
         self.save_terminal_entry(terminal_entry, dialog)
 
-
-    def save_terminal_entry_by_prikey(self, name, host, port,dialog, private_key_input):
+    def save_terminal_entry_by_prikey(self, name, host, port, dialog, private_key_input):
         """保存基于私钥认证的终端条目"""
-        # 创建终端条目字典
         terminal_entry = {
             "name": name.text(),
             "host": host.text(),
             "port": port.text(),
             "auth_method": "公钥",
-            "username": None,
-            "password": None,
+            "username": "",
+            "password": "",
             "private_key_file": private_key_input.text()
         }
-
         self.save_terminal_entry(terminal_entry, dialog)
-
 
     def save_terminal_entry(self, terminal_entry, dialog):
         success = self.set_terminal_info(
@@ -197,60 +182,48 @@ class TerminalManager(QWidget):
             private_key=terminal_entry.get("private_key_file", "")
         )
 
-        # 如果添加失败（终端名称已存在），则直接返回，不关闭对话框
         if not success:
-            name=terminal_entry["name"]
-            warning_message = f"终端名称 '{name}' 已存在。请使用不同的名称。"
+            warning_message = f"终端名称 '{terminal_entry['name']}' 已存在。请使用不同的名称。"
             Message.show_warning(self, "警告", warning_message, duration=3000, require_confirmation=False)
             return False
 
         dialog.accept()
-
         self.save_config()
-        self.load_config()
         self.update_terminal_list_display()
         Message.show_notification(self, "通知", "终端添加成功", require_confirmation=False)
+
+
 
     def update_terminal_list_display(self):
         self.terminal_list.clear()
         terminals = self.config.get('terminals', {})
-        # 遍历配置中的终端列表
         for name, terminal_entry in terminals.items():
-            name = terminal_entry.get("name")
-            host = terminal_entry.get("host")
-            port = terminal_entry.get("port")
-            auth_method = terminal_entry.get("auth_method")
-            username = terminal_entry.get("username")
-            # password = terminal_entry.get("password")
-            private_key = terminal_entry.get("private_key")
-            # 根据认证方法区分显示
-            if auth_method == "密码":
-                # 使用密码认证的终端
-                display_string = f"{name}: {host}:{port} - 密码(user:{username})"
-            elif auth_method == "公钥":
-                # 使用公钥认证的终端
-                display_string = f"{name}: {host}:{port} - 公钥(path:{private_key})"
-            else:
-                # 未知的认证方法
-                display_string = f"{name}: {host}:{port} - 未知认证方法"
-
-            # 创建 QListWidgetItem
+            display_string = self.format_terminal_info(terminal_entry)
             item = QListWidgetItem(display_string)
-
-            # 将原始 JSON 数据存储为隐藏数据
             item.setData(Qt.UserRole, terminal_entry)
-
-            # 将 QListWidgetItem 添加到界面中的终端列表
             self.terminal_list.addItem(item)
+
+    def format_terminal_info(self, terminal_entry):
+        name = terminal_entry.get("name")
+        host = terminal_entry.get("host")
+        port = terminal_entry.get("port")
+        auth_method = terminal_entry.get("auth_method")
+        username = terminal_entry.get("username", "")
+        private_key = terminal_entry.get("private_key", "")
+
+        if auth_method == "密码":
+            return f"{name}: {host}:{port} - 密码认证 (用户: {username})"
+        elif auth_method == "公钥":
+            return f"{name}: {host}:{port} - 公钥认证 (路径: {private_key})"
+        else:
+            return f"{name}: {host}:{port} - 未知认证方式"
+
 
     def delete_terminal_entry(self):
         """删除选中的终端条目"""
-        # 获取选中的终端条目
         selected_items = self.terminal_list.selectedItems()
 
-        # 如果有选中的终端条目
         if selected_items:
-            # 提示用户确认删除操作
             reply = QMessageBox.question(
                 self,
                 "确认删除",
@@ -259,21 +232,13 @@ class TerminalManager(QWidget):
                 QMessageBox.No
             )
 
-            # 如果用户确认删除
             if reply == QMessageBox.Yes:
                 for item in selected_items:
-                    # 从界面中移除选中的终端条目
                     self.terminal_list.takeItem(self.terminal_list.row(item))
-
-                    # 从配置中删除对应的终端信息
                     display_string = item.text()
                     name = display_string.split(":")[0]  # 从显示字符串中提取终端名称
+                    del self.config["terminals"][name]
 
-                    # 删除终端信息
-                    if name in self.config.get("terminals", {}):
-                        del self.config["terminals"][name]
-
-                # 保存更新后的配置
                 self.save_config()
 
     def connect_terminal(self, item):
@@ -288,89 +253,72 @@ class TerminalManager(QWidget):
         password = terminal_info.get("password", "")
         private_key = terminal_info.get("private_key_file", "")
 
-        # 创建进程
-        process = QProcess()
-        process.setProcessChannelMode(QProcess.MergedChannels)
 
-        # 连接信号槽以处理进程输出
-        process.readyReadStandardOutput.connect(lambda: self.read_output(process))
-
-
-        # 创建新的标签
-        tab_name = f"连接终端: {name}"
+        # 创建新的标签页
+        tab_widget = self.get_tab_widget()
         new_tab = QWidget()
+        tab_name = f"连接终端: {name}"
+        tab_widget.addTab(new_tab, tab_name)
 
-        # 创建布局
+        # 创建布局和文本编辑框
         terminal_layout = QVBoxLayout()
         new_tab.setLayout(terminal_layout)
 
-        # 创建用于显示终端输出的文本编辑框
         terminal_output = QTextEdit()
         terminal_output.setReadOnly(True)
         terminal_layout.addWidget(terminal_output)
 
-        # 创建输入框来发送命令
         command_input = QLineEdit()
-        command_input.returnPressed.connect(lambda: self.send_command(process, command_input, terminal_output))
+        command_input.returnPressed.connect(lambda: self.send_command(new_tab.ssh_client, command_input, terminal_output))
         terminal_layout.addWidget(command_input)
 
-        # 将新的标签添加到标签页中
-        tab_widget = None
-        parent_widget = self.parent()  # 获取父容器
+        # 使用 paramiko 连接终端
+        ssh_client = self.create_ssh_client(auth_method, host, port, username, password, private_key)
+        if ssh_client:
+            new_tab.ssh_client = ssh_client
+            terminal_thread = TerminalThread(ssh_client, terminal_output)
+            terminal_thread.start()
+        else:
+            terminal_output.append("无法连接到终端。")
 
-        # 如果父容器存在并且是 QWidget 类型
+    def get_tab_widget(self):
+        parent_widget = self.parent()
         if parent_widget and isinstance(parent_widget, QWidget):
-            # 使用 findChild 方法查找 QTabWidget
-            tab_widget = parent_widget.findChild(QTabWidget)
+            return parent_widget.findChild(QTabWidget)
+        return None
 
-        # 确保找到的 tab_widget 存在
-        if tab_widget is None:
-            print("找不到 QTabWidget")
-        else:
-            # print("找到 QTabWidget")
-            tab_widget.addTab(new_tab, tab_name)
+    def create_ssh_client(self, auth_method, host, port, username, password, private_key):
+           """创建 SSH 客户端"""
+           ssh_client = paramiko.SSHClient()
+           ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        # 根据认证方式设置命令行参数
-        command = self.get_command(host, port, auth_method, username, password, private_key)
+           try:
+               if auth_method == "密码":
+                   ssh_client.connect(host, port=port, username=username, password=password)
+               elif auth_method == "公钥" and private_key:
+                   private_key_file = paramiko.RSAKey.from_private_key_file(private_key)
+                   ssh_client.connect(host, port=port, username=username, pkey=private_key_file)
+               else:
+                   return None
+           except Exception as e:
+               print(f"连接终端失败：{e}")
+               return None
 
-        # 开始进程
-        print(command, process.error())
-        process.start(command)
-        print( process.error())
-        # 将进程与新标签关联
-        new_tab.process = process
+           return ssh_client
 
-    def get_command(self, host, port, auth_method, username=None, password=None, private_key=None):
-        """根据认证方式获取连接命令"""
-        if auth_method == "密码":
-            if not username or not password:
-                raise ValueError("用户名和密码不能为空。")  # 抛出异常以指示错误
-            command = f"sshpass -p '{password}' ssh {username}@{host} -p {port}"
-
-        elif auth_method == "公钥" and private_key:
-            # 公钥认证，并指定私钥文件
-            if username:
-                command = f"ssh -i {private_key} {username}@{host} -p {port}"
-            else:
-                command = f"ssh -i {private_key} {host} -p {port}"
-        else:
-            # 处理其他认证方式或缺少必要信息的情况
-            command = None
-            raise ValueError("无法处理的认证方式或缺少必要信息。")  # 抛出异常以指示错误
-
-        return command
-
-    def read_output(self, process, terminal_output):
-        """读取进程输出并显示在文本编辑框中"""
-        output = process.readAllStandardOutput().data().decode("utf-8")
-        terminal_output.append(output)
-
-    def send_command(self, process, command_input, terminal_output):
-        """发送命令并将输入框内容清空"""
+    def send_command(self, ssh_client, command_input, terminal_output):
+        """发送命令"""
         command = command_input.text()
-        print(process.error(), "send_command")
-        process.write(command.encode("utf-8") + b'\n')
         command_input.clear()
+        stdin, stdout, stderr = ssh_client.exec_command(command)
+        output = stdout.read().decode()
+        error = stderr.read().decode()
+
+        if output:
+           terminal_output.append(output)
+
+        if error:
+           terminal_output.append(error)
 
     def browse_file(self, input_widget):
         """浏览文件"""
@@ -378,40 +326,34 @@ class TerminalManager(QWidget):
         if file_path:
             input_widget.setText(file_path)
 
-    def connect_to_host(self, host_info):
-        # 创建新标签页
-        terminal_widget = QWidget()
-        terminal_layout = QVBoxLayout()
 
-        # 创建新的QProcess用于连接指定的主机
-        process = QProcess()
-        process.setProcessChannelMode(QProcess.MergedChannels)
-        process.readyReadStandardOutput.connect(lambda: self.read_output(process))
 
-        # 启动终端进程
-        command = f"ssh {host_info['username']}@{host_info['host']} -p {host_info['port']}"
-        process.start(command)
+class TerminalThread(QThread):
+    """用于处理 SSH 连接的线程"""
 
-        # 检查QProcess的状态
-        if not process.isOpen() or process.state() != QProcess.Running:
-            print("Error: QProcess is not open or not running.")
-            return
+    output_signal = Signal(str)
 
-        # 添加QTextEdit用于显示终端输出
-        terminal_output = QTextEdit()
-        terminal_output.setReadOnly(True)
-        terminal_layout.addWidget(terminal_output)
+    def __init__(self, ssh_client, terminal_output):
+        super().__init__()
+        self.ssh_client = ssh_client
+        self.terminal_output = terminal_output
+        self.is_running = True
 
-        # 添加输入命令的输入框
-        command_input = QLineEdit()
-        command_input.returnPressed.connect(lambda: self.send_command(process, command_input, terminal_output))
-        terminal_layout.addWidget(command_input)
+    def run(self):
+        """从 SSH 客户端读取输出"""
+        while self.is_running:
+            try:
+                stdout = self.ssh_client.exec_command("tail -f /dev/null")[1]
+                while self.is_running:
+                    line = stdout.readline()
+                    if line:
+                        self.output_signal.emit(line.strip())
+                        self.terminal_output.append(line.strip())
+            except Exception as e:
+                print(f"读取 SSH 输出时发生错误：{e}")
+                self.is_running = False
 
-        # 设置终端widget的布局
-        terminal_widget.setLayout(terminal_layout)
-
-        # 添加新标签页到QTabWidget
-        self.tab_widget.addTab(terminal_widget, host_info['name'])
-
-        # 将终端进程存储在字典中，以便后续管理
-        self.processes[host_info['name']] = process
+    def stop(self):
+        """停止线程"""
+        self.is_running = False
+        self.ssh_client.close()

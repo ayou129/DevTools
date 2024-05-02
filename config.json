@@ -8,6 +8,15 @@
             "username": "liguoxin",
             "password": "li680910",
             "private_key": null
+        },
+        "3": {
+            "name": "3",
+            "host": "127.0.0.1",
+            "port": "22",
+            "auth_method": "\u5bc6\u7801",
+            "username": "liguoxin",
+            "password": "li68",
+            "private_key": null
         }
     }
 }
