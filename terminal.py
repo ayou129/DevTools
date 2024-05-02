@@ -9,28 +9,126 @@ from PySide6.QtCore import Qt, QTimer, QThread, Signal
 
 
 class TerminalManager(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("终端管理器")
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # self.setWindowTitle("终端管理器")
         self.config_file = "config.json"
         self.config = self.load_config()
-
         self.ssh_clients = {}
         self.connections = {}
 
-        self.layout=QVBoxLayout()
-        self.setLayout(self.layout)
-        self.tab_widget = QTabWidget()
-        self.layout.addWidget(self.tab_widget)
+    def init_ui_btn(self):
+        # 创建终端管理器按钮
+        self.button = QPushButton("终端管理器", self)
+        self.button.setFixedWidth(100)
+        self.button.clicked.connect(self.show_manager_ui)
+        return self.button
 
-        self.terminal_list = QListWidget()
-        self.terminal_list.itemDoubleClicked.connect(self.connect_terminal)
-        self.layout.addWidget(self.terminal_list)
 
-        self.update_terminal_list_display()
+    def show_manager_ui(self):
+        """显示终端管理器界面"""
+        # 创建一个 QDialog 对话框
+        dialog = QDialog(self)
 
-        self.init_ui()
+        # 设置对话框的标题和尺寸
+        dialog.setWindowTitle("终端管理器")
+        dialog.setGeometry(100, 100, 800, 600)
 
+        # 设置对话框的透明度
+        # dialog.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+        # dialog.setAttribute(Qt.WA_TranslucentBackground, True)
+
+        # 创建主布局
+        main_layout = QVBoxLayout()
+
+        # 创建控制按钮布局
+        button_layout = QHBoxLayout()
+
+        # 添加“添加终端”按钮
+        button_add_terminal = QPushButton("添加终端")
+        button_add_terminal.setFixedWidth(100)
+        button_add_terminal.clicked.connect(self.add_terminal_entry)
+        button_layout.addWidget(button_add_terminal)
+
+        # 添加“移除终端”按钮
+        button_remove_terminal = QPushButton("移除终端")
+        button_remove_terminal.setFixedWidth(100)
+        button_remove_terminal.clicked.connect(self.remove_current_terminal)
+        button_layout.addWidget(button_remove_terminal)
+
+        # 将按钮布局添加到主布局
+        main_layout.addLayout(button_layout)
+
+        # 创建终端列表视图
+        self.list_terminal = QListWidget()
+        self.list_terminal.itemDoubleClicked.connect(self.connect_terminal)
+        main_layout.addWidget(self.list_terminal)
+
+        # 设置对话框的布局
+        dialog.setLayout(main_layout)
+
+        # 更新终端列表显示
+        self.update_list_terminal_display()
+
+        # 居中显示对话框
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.setGeometry(
+            self.parent().geometry().center().x() - dialog.width() / 2,
+            self.parent().geometry().center().y() - dialog.height() / 2,
+            dialog.width(),
+            dialog.height(),
+        )
+
+        # 显示对话框
+        dialog.show()
+
+    def add_terminal_entry(self):
+        """添加新的终端条目"""
+        # 创建对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle("添加终端")
+
+        # 创建表单布局
+        form_layout = QFormLayout()
+
+        # 初始化输入控件
+        name_input = QLineEdit()
+        host_input = QLineEdit()
+        port_input = QSpinBox()
+        port_input.setValue(22)
+        auth_method_select = QComboBox()
+        auth_method_select.addItems(["密码", "公钥"])
+        username_input = QLineEdit()
+        password_input = QLineEdit()
+        password_input.setEchoMode(QLineEdit.Password)
+        private_key_input = QLineEdit()
+        browse_button = QPushButton("浏览")
+        browse_button.clicked.connect(lambda: self.browse_file(private_key_input))
+
+        # 将输入控件添加到表单布局
+        form_layout.addRow("名称", name_input)
+        form_layout.addRow("主机", host_input)
+        form_layout.addRow("端口", port_input)
+        form_layout.addRow("认证方式", auth_method_select)
+
+        # 根据选择的认证方式添加相应的输入控件
+        if auth_method_select.currentText() == "密码":
+            form_layout.addRow("用户名", username_input)
+            form_layout.addRow("密码", password_input)
+        else:
+            form_layout.addRow("私钥文件", private_key_input)
+            form_layout.addRow("", browse_button)
+
+        # 添加对话框按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(lambda: self.save_terminal_entry(dialog, name_input, host_input, port_input, auth_method_select, username_input, password_input, private_key_input))
+        button_box.rejected.connect(dialog.reject)
+        form_layout.addWidget(button_box)
+
+        # 设置对话框布局
+        dialog.setLayout(form_layout)
+        dialog.exec_()    
     def load_config(self):
         """从 JSON 文件中加载配置，如果文件不存在则返回空字典"""
         try:
@@ -61,7 +159,7 @@ class TerminalManager(QWidget):
         """通过终端名称获取单个终端信息"""
         return self.config.get("terminals", {}).get(name, None)
 
-    def get_terminal_list(self):
+    def get_list_terminal(self):
         """获取终端信息列表"""
         return list(self.config.get("terminals", {}).values())
 
@@ -81,19 +179,6 @@ class TerminalManager(QWidget):
         }
         self.save_config()  # 保存配置
         return True
-
-    def init_ui(self):
-        """初始化用户界面"""
-        # self.setLayout(QVBoxLayout())
-
-        add_button = QPushButton("添加终端连接")
-        add_button.clicked.connect(self.add_terminal_connection)
-        self.layout.addWidget(add_button)
-
-        remove_button = QPushButton("移除当前终端")
-        remove_button.clicked.connect(self.remove_current_terminal)
-        self.layout.addWidget(remove_button)
-
 
     def add_terminal_connection(self):
         """添加新的终端连接"""
@@ -212,64 +297,6 @@ class TerminalManager(QWidget):
             self.save_config()
 
 
-    def add_terminal_entry(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("添加终端条目")
-
-        form_layout = QFormLayout()
-
-        # 初始化输入控件
-        name_input = QLineEdit()
-        host_input = QLineEdit("127.0.0.1")
-        port_input = QSpinBox()
-        port_input.setValue(22)
-        auth_method_select = QComboBox()
-        auth_method_select.addItems(["密码", "公钥"])
-        username_input = QLineEdit()
-        password_input = QLineEdit()
-        password_input.setEchoMode(QLineEdit.Password)
-        private_key_input = QLineEdit()
-        browse_button = QPushButton("浏览")
-
-        # 获取默认配置
-        default_config = self.get_default_config()
-
-          # 设置输入控件的默认值
-        name_input.setText(default_config.get("name", ""))
-        host_input.setText(default_config.get("host", "127.0.0.1"))
-        port_input.setValue(default_config.get("port", 22))
-        auth_method_select.setCurrentText(default_config.get("auth_method", "密码"))
-
-        if auth_method_select.currentText() == "密码":
-            password_input.setEchoMode(QLineEdit.Password)
-            username_input.setText(default_config.get("username", ""))
-            password_input.setText(default_config.get("password", ""))
-        else:
-            private_key_input.setText(default_config.get("private_key", ""))
-
-
-        # 添加输入控件
-        form_layout.addRow("名称", name_input)
-        form_layout.addRow("主机", host_input)
-        form_layout.addRow("端口", port_input)
-        form_layout.addRow("认证方法", auth_method_select)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        if auth_method_select.currentText() == "密码":
-            form_layout.addRow("用户名", username_input)
-            form_layout.addRow("密码", password_input)
-            button_box.accepted.connect(lambda: self.save_terminal_entry_by_pwd(name_input, host_input, port_input, dialog, username_input, password_input))
-        else:
-            form_layout.addRow("私钥文件", private_key_input)
-            button_box.accepted.connect(lambda: self.save_terminal_entry_by_prikey(name_input, host_input, port_input, dialog, private_key_input))
-            form_layout.addRow("", browse_button)
-
-        button_box.rejected.connect(dialog.reject)
-        form_layout.addWidget(button_box)
-        dialog.setLayout(form_layout)
-        dialog.exec()
-
-
     def save_terminal_entry_by_pwd(self, name, host, port, dialog, username_input, password_input):
         """保存基于密码认证的终端条目"""
         terminal_entry = {
@@ -314,19 +341,17 @@ class TerminalManager(QWidget):
 
         dialog.accept()
         self.save_config()
-        self.update_terminal_list_display()
+        self.update_list_terminal_display()
         Message.show_notification(self, "通知", "终端添加成功", require_confirmation=False)
 
-
-
-    def update_terminal_list_display(self):
-        self.terminal_list.clear()
+    def update_list_terminal_display(self):
+        self.list_terminal.clear()
         terminals = self.config.get('terminals', {})
         for name, terminal_entry in terminals.items():
             display_string = self.format_terminal_info(terminal_entry)
             item = QListWidgetItem(display_string)
             item.setData(Qt.UserRole, terminal_entry)
-            self.terminal_list.addItem(item)
+            self.list_terminal.addItem(item)
 
     def format_terminal_info(self, terminal_entry):
         name = terminal_entry.get("name")
@@ -343,10 +368,9 @@ class TerminalManager(QWidget):
         else:
             return f"{name}: {host}:{port} - 未知认证方式"
 
-
     def delete_terminal_entry(self):
         """删除选中的终端条目"""
-        selected_items = self.terminal_list.selectedItems()
+        selected_items = self.list_terminal.selectedItems()
 
         if selected_items:
             reply = QMessageBox.question(
@@ -359,7 +383,7 @@ class TerminalManager(QWidget):
 
             if reply == QMessageBox.Yes:
                 for item in selected_items:
-                    self.terminal_list.takeItem(self.terminal_list.row(item))
+                    self.list_terminal.takeItem(self.list_terminal.row(item))
                     display_string = item.text()
                     name = display_string.split(":")[0]  # 从显示字符串中提取终端名称
                     del self.config["terminals"][name]

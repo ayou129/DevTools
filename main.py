@@ -96,11 +96,12 @@ class MainWindow(QMainWindow):
         default_tab = QWidget()
         self.right_tab_widget.addTab(default_tab, "新标签页")
 
-        # 创建终端管理器按钮
-        self.terminal_manager_button = QPushButton("终端管理器")
-        self.terminal_manager_button.clicked.connect(self.show_terminal_manager)
-        # 将按钮添加到标签栏的左上角
-        self.right_tab_widget.setCornerWidget(self.terminal_manager_button, Qt.TopLeftCorner)
+        # 初始化终端管理器
+        self.terminal_manager = TerminalManager(self)
+        # 添加终端管理器按钮到布局中
+        terminal_manager_button = self.terminal_manager.init_ui_btn()
+        self.right_layout.addWidget(terminal_manager_button)
+        
 
         # 添加一个添加标签的按钮到标签栏的右上角
         self.add_tab_button = QPushButton("+")
