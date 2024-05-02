@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 13.0.0, 2024-05-01T12:34:11. -->
+<!-- Written by QtCreator 13.0.0, 2024-05-01T17:00:02. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -104,8 +104,8 @@
      <valuemap type="QVariantMap" key="ProjectExplorer.BuildStepList.Step.0">
       <value type="bool" key="ProjectExplorer.BuildStep.Enabled">true</value>
       <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">Python.PysideBuildStep</value>
-      <value type="QString" key="Python.PySideProjectTool">/Users/liguoxin/Library/Python/3.11/bin/pyside6-project</value>
-      <value type="QString" key="Python.PySideUic">/Users/liguoxin/Library/Python/3.11/bin/pyside6-uic</value>
+      <value type="QString" key="Python.PySideProjectTool">/opt/homebrew/bin/pyside6-project</value>
+      <value type="QString" key="Python.PySideUic">/opt/homebrew/bin/pyside6-uic</value>
      </valuemap>
      <value type="qlonglong" key="ProjectExplorer.BuildStepList.StepsCount">1</value>
      <value type="QString" key="ProjectExplorer.ProjectConfiguration.DefaultDisplayName">构建</value>
@@ -154,7 +154,7 @@
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">main.py</value>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">PythonEditor.RunConfiguration./Users/liguoxin/Desktop/web/devTools/main.py</value>
     <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">/Users/liguoxin/Desktop/web/devTools/main.py</value>
-    <value type="bool" key="ProjectExplorer.RunConfiguration.Customized">false</value>
+    <value type="bool" key="ProjectExplorer.RunConfiguration.Customized">true</value>
     <value type="QString" key="PythonEditor.RunConfiguation.Script">/Users/liguoxin/Desktop/web/devTools/main.py</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseQmlDebuggerAuto">true</value>

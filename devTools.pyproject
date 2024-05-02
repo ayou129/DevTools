@@ -1,5 +1,7 @@
 {
     "files": [
-        "main.py"
+        "config.json",
+        "main.py",
+        "message.py"
     ]
 }
