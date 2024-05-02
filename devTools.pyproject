@@ -2,6 +2,7 @@
     "files": [
         "config.json",
         "main.py",
-        "message.py"
+        "message.py",
+        "terminal.py"
     ]
 }
