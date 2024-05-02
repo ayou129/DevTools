@@ -5,7 +5,7 @@ from terminal import TerminalManager
 from driver import format_system_info, format_network_info, get_ip_address
 from PySide6.QtWidgets import QApplication, QMainWindow, QSplitter, QTextEdit, QTabWidget, QPushButton, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QInputDialog, QListWidget, QDialog, QLineEdit, QFormLayout, QSpinBox, QComboBox, QDialogButtonBox,QCheckBox,QFileDialog, QSizePolicy, QMessageBox, QListWidgetItem
 from PySide6.QtGui import QIcon, QFont
-from PySide6.QtCore import Qt, QTimer, QProcess
+from PySide6.QtCore import Qt, QTimer
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -14,87 +14,169 @@ class MainWindow(QMainWindow):
         # base setting
         self.setWindowTitle("开发者工具")
         self.setWindowIcon(QIcon("icon.png"))
-        self.resize(800, 600)
+        self.resize(1500, 800)
+        # 将窗口的起始位置设置为距离屏幕左上角100像素，窗口的大小设置为宽1500像素，高800像素。
+        self.setGeometry(100, 100, 1500, 800)
+
+        # 创建中央部件
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
 
         # 创建主布局
-        main_layout = QVBoxLayout()
-        main_widget = QWidget()
-        main_widget.setLayout(main_layout)
-        self.setCentralWidget(main_widget)
+        self.main_layout = QHBoxLayout(central_widget)
 
-        # 创建左侧窗口
-        self.left_widget = QWidget()
-        self.left_layout = QVBoxLayout()
-        self.left_widget.setLayout(self.left_layout)
-        self.left_widget.setFixedWidth(130)  # 根据需要调整宽度
+        # 创建左右分割器
+        self.main_splitter = QSplitter(Qt.Horizontal, central_widget)
+        self.main_layout.addWidget(self.main_splitter)
 
-        self.left_init_title = QLabel("Driver init...")
-        self.left_layout.addWidget(self.left_init_title)
+        # 左侧占150像素，右侧占1350像素
+        self.main_splitter.setSizes([150, 1350])
 
-        self.ip_widget = QLabel()
-        self.ip_widget.setFixedHeight(17)
-        self.left_layout.addWidget(self.ip_widget)
+        # 创建左侧布局
+        self.create_left_side()
 
-        # 创建主机信息按钮
-        self.host_info_button = QPushButton("主机信息")
-        self.host_info_button.clicked.connect(self.show_host_info)
-        self.host_info_button.setVisible(False)
-        self.left_layout.addWidget(self.host_info_button)
+        # 创建右侧布局
+        self.create_right_side()
 
-        # 创建用于显示主机信息和网络信息的布局
-        self.host_info_layout = QVBoxLayout()
+    def create_left_side(self):
 
-        self.system_info_widget = QLabel()
-        self.system_info_widget.setVisible(False)
-        self.left_layout.addWidget(self.system_info_widget)
+        self.left_widget = QWidget(self.main_splitter)
+        self.left_layout = QVBoxLayout(self.left_widget)
 
-        self.network_info_widget = QLabel()
-        self.network_info_widget.setFixedHeight(60)
-        self.network_info_widget.setVisible(False)
-        self.left_layout.addWidget(self.network_info_widget)
 
+        self.left_widget_title = QLabel("Init...", self.left_widget)
+        self.left_layout.addWidget(self.left_widget_title)
+
+        self.left_widget_ip = QLabel()
+        self.left_widget_ip.setFixedHeight(17)
+        self.left_layout.addWidget(self.left_widget_ip)
+
+        self.left_widget_host_info_button = QPushButton("主机信息")
+        self.left_widget_host_info_button.clicked.connect(self.show_host_info)
+        self.left_widget_host_info_button.setVisible(False)
+        self.left_layout.addWidget(self.left_widget_host_info_button)
+
+        self.left_widget_system_info = QLabel()
+        self.left_widget_system_info.setVisible(False)
+        self.left_layout.addWidget(self.left_widget_system_info)
+
+        self.left_widget_network_info = QLabel()
+        self.left_widget_network_info.setFixedHeight(60)
+        self.left_widget_network_info.setVisible(False)
+        self.left_layout.addWidget(self.left_widget_network_info)
+
+        # self.main_splitter.addWidget(self.left_widget)
 
         # 设置定时器，每隔1秒刷新一次信息
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh_info)
-        self.timer.start(1000)  # 设置计时器为1秒
+        timer = QTimer(self)
+        timer.timeout.connect(self.refresh_info)
+        timer.start(1000)  # 设置计时器为1秒
 
-        self.left_layout.addWidget(QLabel())
+    def populate_terminal_manager_list(self):
+        """填充终端管理器列表（示例数据）"""
+        # 示例数据
+        terminals = ["终端 1", "终端 2", "终端 3"]
+        for terminal in terminals:
+            item = QListWidgetItem(terminal)
+            # terminal_manager_list.addItem(item)
 
-        # 创建分割器
-        self.splitter = QSplitter(Qt.Horizontal)
-        # 创建终端管理器
-        self.terminal_manager = TerminalManager()
-        self.splitter.addWidget(self.terminal_manager)
+        # 双击终端列表项进行连接
+        # terminal_manager_list.itemDoubleClicked.connect(self.connect_terminal)
 
-        # 将左侧窗口添加到分割器中
-        self.splitter.addWidget(self.left_widget)
+    def create_right_side(self):
+        """创建右侧布局"""
+        # 创建右侧的 QWidget 和 QVBoxLayout
+        self.right_widget = QWidget(self.main_splitter)
+        self.right_layout = QVBoxLayout(self.right_widget)
 
-        tab_widget = QTabWidget()
-        self.splitter.addWidget(tab_widget)
-        main_layout.addWidget(self.splitter)
+        # 创建标签栏
+        self.right_tab_widget = QTabWidget()
+
+        # 创建一个默认的标签页
+        default_tab = QWidget()
+        self.right_tab_widget.addTab(default_tab, "新标签页")
+
+        # 创建终端管理器按钮
+        self.terminal_manager_button = QPushButton("终端管理器")
+        self.terminal_manager_button.clicked.connect(self.show_terminal_manager)
+        # 将按钮添加到标签栏的左上角
+        self.right_tab_widget.setCornerWidget(self.terminal_manager_button, Qt.TopLeftCorner)
+
+        # 添加一个添加标签的按钮到标签栏的右上角
+        self.add_tab_button = QPushButton("+")
+        self.add_tab_button.clicked.connect(self.add_new_tab)
+        self.right_tab_widget.setCornerWidget(self.add_tab_button, Qt.TopRightCorner)
+
+        # 将标签栏添加到右侧布局中
+        self.right_layout.addWidget(self.right_tab_widget)
+
+
+        self.main_splitter.setSizes([self.width() // 11, self.width() * 10 // 11])
+
 
     def refresh_info(self):
-        # 刷新 IP 地址
+        """刷新 IP 地址和相关信息"""
         ip_address = get_ip_address()
         if ip_address:
-            # 显示 IP 地址作为主机标题
-            self.left_init_title.setHidden(True)
-            self.ip_widget.setText(f"IP: {ip_address}")
+            # 更新 IP 信息
+            self.left_widget_ip.setText(f"IP: {ip_address}")
 
             # 显示主机信息按钮
-            self.host_info_button.setVisible(True)
+            self.left_widget_host_info_button.setVisible(True)
 
-            # 更新网络信息
+            # 格式化网络信息并更新显示
             network_info_text = format_network_info()
-            self.network_info_widget.setText(network_info_text)
-            self.network_info_widget.setVisible(True)
-        else:
-            # 隐藏主机信息按钮和网络信息
-            self.host_info_button.setVisible(False)
-            self.network_info_widget.setVisible(False)
-            self.left_init_title.setText("Init...")
+            self.left_widget_network_info.setText(network_info_text)
+            self.left_widget_network_info.setVisible(True)
 
+            # 隐藏初始化的标题文本
+            self.left_widget_title.setVisible(False)
+        else:
+            # 没有 IP 地址时，隐藏相关信息
+            self.left_widget_ip.setText("")
+            self.left_widget_host_info_button.setVisible(False)
+            self.left_widget_network_info.setVisible(False)
+
+            # 显示初始化的标题文本
+            self.left_widget_title.setVisible(True)
+            self.left_widget_title.setText("Init...")
+    def add_new_tab(self):
+        """添加新标签页"""
+        # 创建新标签页
+        new_tab = QWidget()
+        new_layout = QVBoxLayout(new_tab)
+        new_tab.setLayout(new_layout)
+
+        # 创建终端输出控件
+        terminal_output = QTextEdit()
+        terminal_output.setReadOnly(True)
+        new_layout.addWidget(terminal_output)
+
+        # 创建命令输入框
+        command_input = QLineEdit()
+        # 将 `handle_command_input` 连接到 `returnPressed` 事件
+        command_input.returnPressed.connect(lambda: self.handle_command_input(command_input, terminal_output))
+        new_layout.addWidget(command_input)
+
+        # 给新标签页命名
+        tab_name = f"终端 {self.terminal_tabs.count()}"
+        self.terminal_tabs.addTab(new_tab, tab_name)
+
+    def handle_command_input(self, command_input, terminal_output):
+        """处理命令输入"""
+        command = command_input.text()
+        # 在这里添加处理命令的逻辑
+        # 您可能需要执行命令并将输出显示在 `terminal_output` 中
+        pass
+
+
+
+    def show_terminal_manager(self):
+        """显示终端管理器的管理界面"""
+        # 在这里编写代码以显示管理界面
+        # 例如，弹出一个对话框或新的窗口进行管理操作
+        print("显示终端管理器的管理界面")
+        # 具体的操作根据你的需求来实现
     def show_host_info(self):
         # 创建对话框
         host_info_dialog = QDialog(self)

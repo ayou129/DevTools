@@ -1,22 +1,35 @@
-import sys, json,paramiko
+import sys, json,paramiko, re
 from configparser import ConfigParser
 from message import Message
 from driver import format_system_info, format_network_info, get_ip_address
 from PySide6.QtWidgets import QApplication, QMainWindow, QSplitter, QTextEdit, QTabWidget, QPushButton, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QInputDialog, QListWidget, QDialog, QLineEdit, QFormLayout, QSpinBox, QComboBox, QDialogButtonBox,QCheckBox,QFileDialog, QSizePolicy, QMessageBox, QListWidgetItem
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtGui import QIcon, QFont, QTextOption
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
+# from ansi_text_edit import AnsiTextEdit
 
 
 class TerminalManager(QWidget):
     def __init__(self):
         super().__init__()
-        self.init_ui()
-        self.config_file = "config.json"
-
         self.setWindowTitle("终端管理器")
+        self.config_file = "config.json"
         self.config = self.load_config()
+
         self.ssh_clients = {}
+        self.connections = {}
+
+        self.layout=QVBoxLayout()
+        self.setLayout(self.layout)
+        self.tab_widget = QTabWidget()
+        self.layout.addWidget(self.tab_widget)
+
+        self.terminal_list = QListWidget()
+        self.terminal_list.itemDoubleClicked.connect(self.connect_terminal)
+        self.layout.addWidget(self.terminal_list)
+
         self.update_terminal_list_display()
+
+        self.init_ui()
 
     def load_config(self):
         """从 JSON 文件中加载配置，如果文件不存在则返回空字典"""
@@ -71,21 +84,133 @@ class TerminalManager(QWidget):
 
     def init_ui(self):
         """初始化用户界面"""
-        layout = QVBoxLayout()
+        # self.setLayout(QVBoxLayout())
 
-        self.terminal_list = QListWidget()
-        self.terminal_list.itemDoubleClicked.connect(self.connect_terminal)
-        layout.addWidget(self.terminal_list)
+        add_button = QPushButton("添加终端连接")
+        add_button.clicked.connect(self.add_terminal_connection)
+        self.layout.addWidget(add_button)
 
-        add_button = QPushButton("添加终端条目")
-        add_button.clicked.connect(self.add_terminal_entry)
-        layout.addWidget(add_button)
+        remove_button = QPushButton("移除当前终端")
+        remove_button.clicked.connect(self.remove_current_terminal)
+        self.layout.addWidget(remove_button)
 
-        delete_button = QPushButton("删除选中条目")
-        delete_button.clicked.connect(self.delete_terminal_entry)
-        layout.addWidget(delete_button)
 
-        self.setLayout(layout)
+    def add_terminal_connection(self):
+        """添加新的终端连接"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("添加终端连接")
+
+        form_layout = QFormLayout()
+        name_input = QLineEdit()
+        host_input = QLineEdit()
+        port_input = QSpinBox()
+        port_input.setValue(22)
+        auth_method_select = QComboBox()
+        auth_method_select.addItems(["密码", "公钥"])
+        username_input = QLineEdit()
+        password_input = QLineEdit()
+        password_input.setEchoMode(QLineEdit.Password)
+        private_key_input = QLineEdit()
+
+        form_layout.addRow("名称", name_input)
+        form_layout.addRow("主机", host_input)
+        form_layout.addRow("端口", port_input)
+        form_layout.addRow("认证方式", auth_method_select)
+        form_layout.addRow("用户名", username_input)
+        form_layout.addRow("密码", password_input)
+        form_layout.addRow("私钥文件", private_key_input)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(lambda: self.save_terminal_connection(name_input.text(), host_input.text(), port_input.value(), auth_method_select.currentText(), username_input.text(), password_input.text(), private_key_input.text(), dialog))
+        button_box.rejected.connect(dialog.reject)
+
+        form_layout.addWidget(button_box)
+        dialog.setLayout(form_layout)
+        dialog.exec()
+
+    def save_terminal_connection(self, name, host, port, auth_method, username, password, private_key, dialog):
+        """保存新的终端连接并更新界面"""
+        terminal_info = {
+            "name": name,
+            "host": host,
+            "port": port,
+            "auth_method": auth_method,
+            "username": username,
+            "password": password,
+            "private_key": private_key
+        }
+
+        if name in self.config["terminals"]:
+            print(f"终端名称 {name} 已存在，请使用不同的名称。")
+            dialog.reject()
+            return
+
+        self.config["terminals"][name] = terminal_info
+        self.save_config()
+
+        # 创建新的终端连接对象
+        connection = TerminalConnection(host, port, auth_method, username, password, private_key)
+        self.connections[name] = connection
+
+        dialog.accept()
+        self.create_terminal_tab(connection, name)
+
+    def create_terminal_tab(self, connection, name):
+        """创建新的终端标签页"""
+        new_tab = QWidget()
+        terminal_layout = QVBoxLayout()
+        new_tab.setLayout(terminal_layout)
+
+        # 使用 AnsiTextEdit 控件支持 ANSI 颜色代码
+        terminal_output = AnsiTextEdit()
+        terminal_layout.addWidget(terminal_output)
+
+        command_input = QLineEdit()
+        command_input.returnPressed.connect(lambda: self.send_command(connection, command_input, terminal_output))
+        terminal_layout.addWidget(command_input)
+
+        # 添加标签页到 TabWidget
+        tab_index = self.tab_widget.addTab(new_tab, name)
+
+        # 启动终端线程
+        if connection.connect():
+            terminal_thread = TerminalThread(connection.ssh_client, terminal_output)
+            terminal_thread.output_signal.connect(terminal_output.append)
+            terminal_thread.start()
+            self.tab_widget.setCurrentIndex(tab_index)
+        else:
+            terminal_output.append("连接终端失败。")
+
+
+    def send_command(self, connection, command_input, terminal_output):
+        """发送命令到终端"""
+        command = command_input.text()
+        command_input.clear()
+
+        # 检查 connection 对象是否是 TerminalConnection 的实例
+        if isinstance(connection, TerminalConnection):
+            if connection.terminal_thread and connection.terminal_thread.channel:
+                connection.terminal_thread.channel.send(command + '\n')
+        else:
+            terminal_output.append("Invalid connection object.")
+
+    def remove_current_terminal(self):
+        """移除当前终端连接"""
+        current_index = self.tab_widget.currentIndex()
+        if current_index != -1:
+            tab_name = self.tab_widget.tabText(current_index)
+            connection = self.connections.get(tab_name)
+
+            if connection:
+                # 停止终端连接
+                connection.stop_terminal()
+                del self.connections[tab_name]
+
+            # 移除标签页
+            self.tab_widget.removeTab(current_index)
+            del self.config["terminals"][tab_name]
+            self.save_config()
+
 
     def add_terminal_entry(self):
         dialog = QDialog(self)
@@ -306,20 +431,6 @@ class TerminalManager(QWidget):
 
            return ssh_client
 
-    def send_command(self, ssh_client, command_input, terminal_output):
-        """发送命令"""
-        command = command_input.text()
-        command_input.clear()
-        stdin, stdout, stderr = ssh_client.exec_command(command)
-        output = stdout.read().decode()
-        error = stderr.read().decode()
-
-        if output:
-           terminal_output.append(output)
-
-        if error:
-           terminal_output.append(error)
-
     def browse_file(self, input_widget):
         """浏览文件"""
         file_path, _ = QFileDialog.getOpenFileName(self, "选择文件", filter="All Files (*.*)")
@@ -329,31 +440,146 @@ class TerminalManager(QWidget):
 
 
 class TerminalThread(QThread):
-    """用于处理 SSH 连接的线程"""
-
+    """线程类，用于处理 SSH 连接和交互式终端会话"""
     output_signal = Signal(str)
 
     def __init__(self, ssh_client, terminal_output):
         super().__init__()
         self.ssh_client = ssh_client
         self.terminal_output = terminal_output
+        self.channel = None
         self.is_running = True
 
     def run(self):
-        """从 SSH 客户端读取输出"""
+        """在终端会话中读取输出"""
+        # 创建交互式终端会话
+        self.channel = self.ssh_client.invoke_shell(term='xterm')
+
+        # 读取连接成功后的登录信息
+        if self.channel.recv_ready():
+            login_info = self.channel.recv(1024).decode()
+            self.output_signal.emit(login_info)
+
+        # 循环读取终端输出
         while self.is_running:
             try:
-                stdout = self.ssh_client.exec_command("tail -f /dev/null")[1]
-                while self.is_running:
-                    line = stdout.readline()
-                    if line:
-                        self.output_signal.emit(line.strip())
-                        self.terminal_output.append(line.strip())
+                if self.channel.recv_ready():
+                    output = self.channel.recv(1024).decode()
+                    self.output_signal.emit(output)
             except Exception as e:
                 print(f"读取 SSH 输出时发生错误：{e}")
                 self.is_running = False
 
+
     def stop(self):
-        """停止线程"""
+        """停止线程并关闭通道"""
         self.is_running = False
-        self.ssh_client.close()
+        if self.channel:
+            self.channel.close()
+
+class TerminalConnection:
+    """表示单个终端连接的类"""
+    def __init__(self, host, port, username, auth_method, password=None, private_key=None):
+        self.host = host
+        self.port = port
+        self.username = username
+        self.auth_method = auth_method
+        self.password = password
+        self.private_key = private_key
+
+        self.ssh_client = paramiko.SSHClient()
+        self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        self.terminal_thread = None
+
+    def connect(self):
+        """连接 SSH 并启动终端线程"""
+        try:
+            # 连接到 SSH 服务器
+            if self.auth_method == '密码':
+                self.ssh_client.connect(self.host, port=self.port, username=self.username, password=self.password)
+            elif self.auth_method == '密钥':
+                self.ssh_client.connect(self.host, port=self.port, username=self.username, key_filename=self.private_key)
+
+            # 启动终端线程
+            self.terminal_thread = TerminalThread(self.ssh_client)
+            return True
+        except Exception as e:
+            print(f"连接 SSH 时发生错误：{e}")
+            return False
+
+    def start_terminal(self, terminal_output):
+        """启动终端线程并连接信号"""
+        if self.terminal_thread:
+            self.terminal_thread.output_signal.connect(terminal_output)
+            self.terminal_thread.start()
+
+    def stop_terminal(self):
+        """停止终端线程并关闭连接"""
+        if self.terminal_thread:
+            self.terminal_thread.stop()
+            self.terminal_thread.wait()
+            self.terminal_thread = None
+
+        if self.ssh_client:
+            self.ssh_client.close()
+            self.ssh_client = None
+
+
+
+class AnsiTextEdit(QTextEdit):
+    """自定义 QTextEdit 类以支持 ANSI 颜色代码"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setReadOnly(True)  # 设置为只读
+        self.setWordWrapMode(Qt.NoWrap)
+
+    def append(self, text):
+        """重写 append 方法，解析 ANSI 颜色代码"""
+        # 使用正则表达式解析 ANSI 颜色代码
+        ansi_escape = re.compile(r'\x1B\[(.*?)([@-~])')
+        html_text = ansi_escape.sub(self._ansi_to_html, text)
+        # 使用 appendHtml 将解析后的文本添加到 QTextEdit
+        self.appendHtml(html_text)
+
+
+    def _ansi_to_html(self, match):
+        """将 ANSI 颜色代码转换为 HTML"""
+        code, char = match.groups()
+        if char == 'm':
+            html_code = self._convert_ansi_code(code)
+            print(f"ANSI code: {code}, HTML code: {html_code}")  # 调试输出
+            return html_code
+        return ''
+
+
+    def _convert_ansi_code(self, code):
+        """根据 ANSI 颜色代码返回相应的 HTML 代码"""
+        codes = code.split(';')
+        style = ''
+        open_tags = []
+        for code in codes:
+            if code == '0':  # 重置样式
+                style += ''.join([f'</{tag}>' for tag in open_tags])
+                open_tags.clear()
+            elif code == '31':  # 红色
+                open_tags.append('span style="color:red"')
+            elif code == '32':  # 绿色
+                open_tags.append('span style="color:green"')
+            elif code == '33':  # 黄色
+                open_tags.append('span style="color:yellow"')
+            elif code == '34':  # 蓝色
+                open_tags.append('span style="color:blue"')
+            elif code == '35':  # 紫色
+                open_tags.append('span style="color:magenta"')
+            elif code == '36':  # 青色
+                open_tags.append('span style="color:cyan"')
+            elif code == '37':  # 白色
+                open_tags.append('span style="color:white"')
+            # 添加其他颜色和样式的转换
+
+        for tag in open_tags:
+            style += f'<{tag}>'
+
+        return style
