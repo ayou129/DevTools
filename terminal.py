@@ -1,6 +1,11 @@
-import sys, json, paramiko, re, os
+import sys, json, paramiko, re, os, time, platform
+
 from pathlib import Path
 from configparser import ConfigParser
+# import colorama
+from colorama import init, Fore, Back, Style, AnsiToWin32
+from ansi2html import Ansi2HTMLConverter
+
 from message import Message
 from driver import format_system_info, format_network_info, get_ip_address
 from PySide6.QtWidgets import (
@@ -27,7 +32,9 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QListWidgetItem,
+    QPlainTextEdit,
     QAbstractItemView,
+    QTextBrowser,
 )
 from PySide6.QtGui import QIcon, QFont, QTextOption
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, QItemSelectionModel
@@ -101,7 +108,6 @@ class TerminalManager(QWidget):
 
         # 创建终端列表视图
         self.terminal_list_listW.itemDoubleClicked.connect(self.connect_terminal)
-        # self.terminal_list_listW.itemClicked.connect(self.connect_terminal)
         main_layout.addWidget(self.terminal_list_listW)
 
         # 设置对话框的布局
@@ -248,94 +254,66 @@ class TerminalManager(QWidget):
         form_layout.addRow("私钥文件", private_key_input)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(
-            lambda: self.save_terminal_connection(
-                name_input.text(),
-                host_input.text(),
-                port_input.value(),
-                auth_method_select.currentText(),
-                username_input.text(),
-                password_input.text(),
-                private_key_input.text(),
-                dialog,
-            )
-        )
+        # button_box.accepted.connect(
+            # lambda: self.save_terminal_connection(
+            #     name_input.text(),
+            #     host_input.text(),
+            #     port_input.value(),
+            #     auth_method_select.currentText(),
+            #     username_input.text(),
+            #     password_input.text(),
+            #     private_key_input.text(),
+            #     dialog,
+            # )
+        # )
         button_box.rejected.connect(dialog.reject)
 
         form_layout.addWidget(button_box)
         dialog.setLayout(form_layout)
         dialog.exec()
 
-    def save_terminal_connection(
-        self, name, host, port, auth_method, username, password, private_key, dialog
-    ):
-        """保存新的终端连接并更新界面"""
-        terminal_info = {
-            "name": name,
-            "host": host,
-            "port": port,
-            "auth_method": auth_method,
-            "username": username,
-            "password": password,
-            "private_key": private_key,
-        }
+    # def save_terminal_connection(
+    #     self, name, host, port, auth_method, username, password, private_key, dialog
+    # ):
+    #     # 创建新的终端连接对象
+    #     connection = TerminalConnection(
+    #         host, port, auth_method, username, password, private_key
+    #     )
+    #     self.create_terminal_tab(connection, name)
+    #     dialog.accept()
 
-        if name in self.config["terminals"]:
-            print(f"终端名称 {name} 已存在，请使用不同的名称。")
-            dialog.reject()
-            return
+    # def create_terminal_tab(self, connection, name):
+    #     """创建新的终端标签页"""
+    #     new_tab = QWidget()
+    #     terminal_layout = QVBoxLayout()
+    #     new_tab.setLayout(terminal_layout)
 
-        self.config["terminals"][name] = terminal_info
-        self.save_terminal_config()
+    #     # 使用 AnsiTextEdit 控件支持 ANSI 颜色代码
+    #     terminal_output = QTextEdit()
+    #     # terminal_output = AnsiTextEdit()
+    #     terminal_layout.addWidget(terminal_output)
 
-        # 创建新的终端连接对象
-        connection = TerminalConnection(
-            host, port, auth_method, username, password, private_key
-        )
-        self.connections[name] = connection
+    #     command_input = QLineEdit()
+    #     command_input.returnPressed.connect(
+    #         lambda: self.send_command(connection, command_input, terminal_output)
+    #     )
+    #     terminal_layout.addWidget(command_input)
 
-        dialog.accept()
-        self.create_terminal_tab(connection, name)
+    #     # 添加标签页到 TabWidget
+    #     tab_index = self.tab_widget.addTab(new_tab, name)
 
-    def create_terminal_tab(self, connection, name):
-        """创建新的终端标签页"""
-        new_tab = QWidget()
-        terminal_layout = QVBoxLayout()
-        new_tab.setLayout(terminal_layout)
+    #     # 将连接对象和输出存储在标签页中
+    #     new_tab.connection = connection
+    #     new_tab.terminal_output = terminal_output
 
-        # 使用 AnsiTextEdit 控件支持 ANSI 颜色代码
-        terminal_output = AnsiTextEdit()
-        terminal_layout.addWidget(terminal_output)
-
-        command_input = QLineEdit()
-        command_input.returnPressed.connect(
-            lambda: self.send_command(connection, command_input, terminal_output)
-        )
-        terminal_layout.addWidget(command_input)
-
-        # 添加标签页到 TabWidget
-        tab_index = self.tab_widget.addTab(new_tab, name)
-
-        # 启动终端线程
-        if connection.connect():
-            terminal_thread = TerminalThread(connection.ssh_client, terminal_output)
-            terminal_thread.output_signal.connect(terminal_output.append)
-            terminal_thread.start()
-            self.tab_widget.setCurrentIndex(tab_index)
-        else:
-            terminal_output.append("连接终端失败。")
-
-    def send_command(self, connection, command_input, terminal_output):
-        """发送命令到终端"""
-        command = command_input.text()
-        command_input.clear()
-
-        # 检查 connection 对象是否是 TerminalConnection 的实例
-        if isinstance(connection, TerminalConnection):
-            if connection.terminal_thread and connection.terminal_thread.channel:
-                connection.terminal_thread.channel.send(command + "\n")
-        else:
-            terminal_output.append("Invalid connection object.")
+    #     # 启动终端线程
+    #     if connection.connect():
+    #         terminal_thread = TerminalThread(connection.ssh_client, terminal_output)
+    #         terminal_thread.output_signal.connect(terminal_output.append)
+    #         terminal_thread.start()
+    #         self.tab_widget.setCurrentIndex(tab_index)
+    #     else:
+    #         terminal_output.append("连接终端失败。")
 
     def save_terminal_entry_btn(self):
         if self.add_terminal_auth_method_select.currentText() == "密码":
@@ -524,35 +502,49 @@ class TerminalManager(QWidget):
         # 创建新的标签页
         tab_widget = self.get_tab_widget()
         new_tab = QWidget()
-        tab_name = f"连接终端: {name}"
-        tab_widget.addTab(new_tab, tab_name)
+        tab_name = f"{name}-{host}"
+        tab_index = tab_widget.addTab(new_tab, tab_name)
 
         # 创建布局和文本编辑框
         terminal_layout = QVBoxLayout()
         new_tab.setLayout(terminal_layout)
 
-        terminal_output = QTextEdit()
-        terminal_output.setReadOnly(True)
+        terminal_output = CustomOutput()
         terminal_layout.addWidget(terminal_output)
 
+        # 创建命令输入框并连接回车键
         command_input = QLineEdit()
         command_input.returnPressed.connect(
-            lambda: self.send_command(
-                new_tab.ssh_client, command_input, terminal_output
-            )
+            lambda: self.send_command(connection, command_input, terminal_output)
         )
         terminal_layout.addWidget(command_input)
 
-        # 使用 paramiko 连接终端
-        ssh_client = self.create_ssh_client(
-            auth_method, host, port, username, password, private_key
+
+        # 使用 TerminalConnection 创建 SSH 连接
+        connection = TerminalConnection(
+            host, port, username, auth_method, password, private_key
         )
-        if ssh_client:
-            new_tab.ssh_client = ssh_client
-            terminal_thread = TerminalThread(ssh_client, terminal_output)
-            terminal_thread.start()
+
+        # 启动 SSH 连接并创建终端线程
+        if connection.connect():
+            # 将连接对象存储在标签页中
+            new_tab.connection = connection
+            
+            # 启动读取终端输出的线程，并连接终端输出信号到终端输出区域
+            connection.start_reading_thread(terminal_output)
+            
+            # 将新标签页添加到 tab_widget 中，并设置为当前激活标签页
+            tab_widget.addTab(new_tab, f"{username}@{host}")
+            tab_widget.setCurrentIndex(tab_index)
+
         else:
-            terminal_output.append("无法连接到终端。")
+            terminal_output.append("连接终端失败。")
+
+    def send_command(self, connection, command_input, terminal_output):
+        command = command_input.text()
+        command_input.clear()
+        connection.send_command(command)
+
 
     def get_tab_widget(self):
         parent_widget = self.parent()
@@ -560,30 +552,6 @@ class TerminalManager(QWidget):
             return parent_widget.findChild(QTabWidget)
         return None
 
-    def create_ssh_client(
-        self, auth_method, host, port, username, password, private_key
-    ):
-        """创建 SSH 客户端"""
-        ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-        try:
-            if auth_method == "密码":
-                ssh_client.connect(
-                    host, port=port, username=username, password=password
-                )
-            elif auth_method == "公钥" and private_key:
-                private_key_file = paramiko.RSAKey.from_private_key_file(private_key)
-                ssh_client.connect(
-                    host, port=port, username=username, pkey=private_key_file
-                )
-            else:
-                return None
-        except Exception as e:
-            print(f"连接终端失败：{e}")
-            return None
-
-        return ssh_client
 
     def browse_file(self, input_widget):
         """浏览文件"""
@@ -595,47 +563,42 @@ class TerminalManager(QWidget):
             input_widget.setText(file_path)
 
 
-class TerminalThread(QThread):
-    """线程类，用于处理 SSH 连接和交互式终端会话"""
-
-    output_signal = Signal(str)
-
-    def __init__(self, ssh_client, terminal_output):
-        super().__init__()
-        self.ssh_client = ssh_client
-        self.terminal_output = terminal_output
-        self.channel = None
-        self.is_running = True
-
-    def run(self):
-        """在终端会话中读取输出"""
-        # 创建交互式终端会话
-        self.channel = self.ssh_client.invoke_shell(term="xterm")
-
-        # 读取连接成功后的登录信息
-        if self.channel.recv_ready():
-            login_info = self.channel.recv(1024).decode()
-            self.output_signal.emit(login_info)
-
-        # 循环读取终端输出
-        while self.is_running:
-            try:
-                if self.channel.recv_ready():
-                    output = self.channel.recv(1024).decode()
-                    self.output_signal.emit(output)
-            except Exception as e:
-                print(f"读取 SSH 输出时发生错误：{e}")
-                self.is_running = False
-
-    def stop(self):
-        """停止线程并关闭通道"""
-        self.is_running = False
-        if self.channel:
-            self.channel.close()
-
-
 class TerminalConnection:
     """表示单个终端连接的类"""
+
+    class ReadingThread(QThread):
+        """线程类，用于持续读取 SSH 连接的终端输出"""
+
+        # 定义一个信号，用于传递终端输出
+        output_signal = Signal(str)
+
+        def __init__(self, ssh_client):
+            super().__init__()
+            self.ssh_client = ssh_client
+            self.channel = None
+            self.is_running = True
+            self.terminal_output_widget = TerminalOutputWidget()
+
+        def run(self):
+            """在终端会话中读取输出并发出信号"""
+            # 创建交互式终端会话
+            self.channel = self.ssh_client.invoke_shell(term="xterm")
+
+            while self.is_running:
+                if self.channel.recv_ready():
+                    # 读取终端输出并解码
+                    output = self.channel.recv(4096).decode('utf-8')
+                    output = self.terminal_output_widget.format(output)
+                    # 通过信号将输出传递出去
+                    self.output_signal.emit(output)
+                # 休眠 100 毫秒以避免过度占用 CPU
+                QThread.msleep(100)
+
+        def stop(self):
+            """停止读取终端输出"""
+            self.is_running = False
+            if self.channel:
+                self.channel.close()
 
     def __init__(
         self, host, port, username, auth_method, password=None, private_key=None
@@ -650,10 +613,10 @@ class TerminalConnection:
         self.ssh_client = paramiko.SSHClient()
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        self.terminal_thread = None
+        self.reading_thread = None
 
     def connect(self):
-        """连接 SSH 并启动终端线程"""
+        """连接 SSH 并启动读取线程"""
         try:
             # 连接到 SSH 服务器
             if self.auth_method == "密码":
@@ -671,82 +634,113 @@ class TerminalConnection:
                     key_filename=self.private_key,
                 )
 
-            # 启动终端线程
-            self.terminal_thread = TerminalThread(self.ssh_client)
+            # 创建读取线程
+            self.reading_thread = self.ReadingThread(self.ssh_client)
             return True
         except Exception as e:
             print(f"连接 SSH 时发生错误：{e}")
             return False
 
-    def start_terminal(self, terminal_output):
-        """启动终端线程并连接信号"""
-        if self.terminal_thread:
-            self.terminal_thread.output_signal.connect(terminal_output)
-            self.terminal_thread.start()
+    def start_reading_thread(self, terminal_output):
+        """启动读取终端输出的线程"""
+        self.reading_thread = self.ReadingThread(self.ssh_client)
+        
+        # 连接输出信号到终端输出组件的 appendPlainText 或 appendHtml 方法
+        self.reading_thread.output_signal.connect(terminal_output.append)
+        
+        # 启动读取线程
+        self.reading_thread.start()
 
-    def stop_terminal(self):
-        """停止终端线程并关闭连接"""
-        if self.terminal_thread:
-            self.terminal_thread.stop()
-            self.terminal_thread.wait()
-            self.terminal_thread = None
+    def send_command(self, command):
+        """发送命令到终端"""
+        if self.reading_thread and self.reading_thread.channel:
+            self.reading_thread.channel.send(command + '\n')
 
+    def stop_reading_thread(self):
+        """停止读取终端输出"""
+        if self.reading_thread:
+            self.reading_thread.stop()
+            self.reading_thread.wait()
+
+    def close(self):
+        """关闭 SSH 连接"""
         if self.ssh_client:
             self.ssh_client.close()
-            self.ssh_client = None
+        self.stop_reading_thread()
 
 
-class AnsiTextEdit(QTextEdit):
-    """自定义 QTextEdit 类以支持 ANSI 颜色代码"""
+class CustomOutput(QWidget):
+    def __init__(self):
+        super().__init__()
+        # 存储纯文本的字符串
+        self.text_content = ""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.setReadOnly(True)  # 设置为只读
-        self.setWordWrapMode(Qt.NoWrap)
+        # 创建一个用于显示纯文本的 QLabel 或 QTextBrowser
+        self.display_widget = QTextBrowser()  # 或者 QLabel()，取决于您的需求
+        layout = QVBoxLayout()
+        layout.addWidget(self.display_widget)
+        self.setLayout(layout)
 
-    def append(self, text):
-        """重写 append 方法，解析 ANSI 颜色代码"""
-        # 使用正则表达式解析 ANSI 颜色代码
-        ansi_escape = re.compile(r"\x1B\[(.*?)([@-~])")
-        html_text = ansi_escape.sub(self._ansi_to_html, text)
-        # 使用 appendHtml 将解析后的文本添加到 QTextEdit
-        self.appendHtml(html_text)
+    def append(self, output):
+        """处理带有 ANSI 控制码的文本，并追加到纯文本内容"""
+        print(output)
+        self.text_content += self.parse_ansi(output)
 
-    def _ansi_to_html(self, match):
-        """将 ANSI 颜色代码转换为 HTML"""
-        code, char = match.groups()
-        if char == "m":
-            html_code = self._convert_ansi_code(code)
-            print(f"ANSI code: {code}, HTML code: {html_code}")  # 调试输出
-            return html_code
-        return ""
+        self.display_widget.setPlainText(self.text_content)
+    def parse_ansi(self, text):
+        """解析带有 ANSI 控制码的文本，并返回纯文本"""
+        ansi_regex = re.compile(r'\x1B\[(\d+)(?:;(\d+))?m')
+        pos = 0
+        result = []
+        while pos < len(text):
+            match = ansi_regex.search(text, pos)
+            if match:
+                start, end = match.span()
+                result.append(text[pos:start])
+                pos = end
+            else:
+                result.append(text[pos:])
+                break
+        return ''.join(result)
+    
+    def clear(self):
+        """清除存储的纯文本内容"""
+        self.text_content = ""
+        # 在需要时可以添加其他清除行为，例如刷新显示
+        print("清除文本内容")
 
-    def _convert_ansi_code(self, code):
-        """根据 ANSI 颜色代码返回相应的 HTML 代码"""
-        codes = code.split(";")
-        style = ""
-        open_tags = []
-        for code in codes:
-            if code == "0":  # 重置样式
-                style += "".join([f"</{tag}>" for tag in open_tags])
-                open_tags.clear()
-            elif code == "31":  # 红色
-                open_tags.append('span style="color:red"')
-            elif code == "32":  # 绿色
-                open_tags.append('span style="color:green"')
-            elif code == "33":  # 黄色
-                open_tags.append('span style="color:yellow"')
-            elif code == "34":  # 蓝色
-                open_tags.append('span style="color:blue"')
-            elif code == "35":  # 紫色
-                open_tags.append('span style="color:magenta"')
-            elif code == "36":  # 青色
-                open_tags.append('span style="color:cyan"')
-            elif code == "37":  # 白色
-                open_tags.append('span style="color:white"')
-            # 添加其他颜色和样式的转换
 
-        for tag in open_tags:
-            style += f"<{tag}>"
 
-        return style
+init()
+class TerminalOutputWidget():
+    """自定义的终端输出窗口，用于支持 ANSI 颜色代码"""
+
+    def __init__(self):
+        # 根据操作系统选择使用
+        print(platform.system())
+        # if platform.system() == 'Windows':
+            # 在 Windows 系统上，使用 AnsiToWin32 包装 QPlainTextEdit 控件
+        self.ansi_converter = AnsiToWin32(self, convert=True, strip=False)
+        self.stream = self.ansi_converter.stream
+        # else:
+            # 在其他系统上，使用 ansi2html 将 ANSI 颜色代码转换为 HTML
+            # self.converter = Ansi2HTMLConverter()
+            # self.stream = self  # 使用 QPlainTextEdit 作为流
+
+   
+    def format(self, output):
+        """将输出追加到文本编辑器中"""
+        if platform.system() == 'Windows':
+            # 在 Windows 上使用 AnsiToWin32 进行转换
+            return self.ansi_converter.write(output)
+        else:
+            return output
+
+    def write(self, text):
+        """定义 write 方法，以便作为输出流使用"""
+        self.appendPlainText(text)
+
+    def flush(self):
+        """刷新缓冲区中的内容"""
+        self.clear()
+

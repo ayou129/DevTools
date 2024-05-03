@@ -62,6 +62,15 @@
             "username": "liguoxin",
             "password": "",
             "private_key": "/Users/liguoxin/Desktop/web/devTools/README.md"
+        },
+        "2123": {
+            "name": "2123",
+            "host": "127.0.0.1",
+            "port": "22",
+            "auth_method": "\u5bc6\u7801",
+            "username": "liguoxin",
+            "password": "li68",
+            "private_key": null
         }
     }
 }
