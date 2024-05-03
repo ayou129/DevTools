@@ -76,8 +76,8 @@ class MainWindow(QMainWindow):
         """填充终端管理器列表（示例数据）"""
         # 示例数据
         terminals = ["终端 1", "终端 2", "终端 3"]
-        for terminal in terminals:
-            item = QListWidgetItem(terminal)
+        # for terminal in terminals:
+            # item = QListWidgetItem(terminal)
             # terminal_manager_list.addItem(item)
 
         # 双击终端列表项进行连接
