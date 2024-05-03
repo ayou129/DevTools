@@ -109,74 +109,98 @@ class TerminalManager(QWidget):
 
         # 显示对话框
         dialog.show()
+
     def add_terminal_entry(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("添加终端")
+        self.add_terminal_dialog = QDialog(self)
+        self.add_terminal_dialog.resize(300, 300)
+        self.add_terminal_dialog.setGeometry(
+            self.parent().geometry().center().x()
+            - self.add_terminal_dialog.width() / 2,
+            self.parent().geometry().center().y()
+            - self.add_terminal_dialog.height() / 2,
+            self.add_terminal_dialog.width(),
+            self.add_terminal_dialog.height(),
+        )
+        self.add_terminal_dialog.setWindowTitle("添加终端")
 
         form_layout = QFormLayout()
 
         # 初始化输入控件
-        name_input = QLineEdit()
-        host_input = QLineEdit("127.0.0.1")
-        port_input = QSpinBox()
-        port_input.setValue(22)
-        auth_method_select = QComboBox()
-        auth_method_select.addItems(["密码", "公钥"])
-        username_input = QLineEdit()
-        password_input = QLineEdit()
-        password_input.setEchoMode(QLineEdit.Password)
-        private_key_input = QLineEdit()
-        browse_button = QPushButton("浏览")
+        self.add_terminal_name_input = QLineEdit()
+        self.add_terminal_host_input = QLineEdit("127.0.0.1")
+        self.add_terminal_port_input = QSpinBox()
+        self.add_terminal_port_input.setValue(22)
+        self.add_terminal_port_input.setRange(1, 65535)  # 端口号的范围
+        self.add_terminal_port_input.setMinimumWidth(70)
+        self.add_terminal_auth_method_select = QComboBox()
+        self.add_terminal_auth_method_select.addItems(["密码", "公钥"])
+        self.add_terminal_auth_method_select.currentIndexChanged.connect(
+            self.update_auth_inputs
+        )
+        self.add_terminal_username_input = QLineEdit()
+        self.add_terminal_password_input = QLineEdit()
+        self.add_terminal_password_input.setEchoMode(QLineEdit.Password)
+        self.add_terminal_private_key_input = QLineEdit()
+        self.add_terminal_browse_button = QPushButton("浏览")
 
         # 获取默认配置
         default_config = self.get_terminal_default_config()
 
         # 设置输入控件的默认值
-        name_input.setText(default_config.get("name", ""))
-        host_input.setText(default_config.get("host", "127.0.0.1"))
-        port_input.setValue(default_config.get("port", 22))
-        auth_method_select.setCurrentText(default_config.get("auth_method", "密码"))
+        self.add_terminal_name_input.setText(default_config.get("name", ""))
+        self.add_terminal_host_input.setText(default_config.get("host", "127.0.0.1"))
+        self.add_terminal_port_input.setValue(default_config.get("port", 22))
+        self.add_terminal_auth_method_select.setCurrentText(
+            default_config.get("auth_method", "密码")
+        )
 
-        if auth_method_select.currentText() == "密码":
-            password_input.setEchoMode(QLineEdit.Password)
-            username_input.setText(default_config.get("username", ""))
-            password_input.setText(default_config.get("password", ""))
+        if self.add_terminal_auth_method_select.currentText() == "密码":
+            self.add_terminal_username_input.setText(default_config.get("username", ""))
+            self.add_terminal_password_input.setText(default_config.get("password", ""))
         else:
-            private_key_input.setText(default_config.get("private_key", ""))
+            self.add_terminal_private_key_input.setText(
+                default_config.get("private_key", "")
+            )
+
+        self.update_auth_inputs()
 
         # 添加输入控件
-        form_layout.addRow("名称", name_input)
-        form_layout.addRow("主机", host_input)
-        form_layout.addRow("端口", port_input)
-        form_layout.addRow("认证方法", auth_method_select)
+        form_layout.addRow("名称", self.add_terminal_name_input)
+        form_layout.addRow("主机", self.add_terminal_host_input)
+        form_layout.addRow("端口", self.add_terminal_port_input)
+        form_layout.addRow("认证方法", self.add_terminal_auth_method_select)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        if auth_method_select.currentText() == "密码":
-            form_layout.addRow("用户名", username_input)
-            form_layout.addRow("密码", password_input)
-            button_box.accepted.connect(
-                lambda: self.save_terminal_entry_by_pwd(
-                    name_input,
-                    host_input,
-                    port_input,
-                    dialog,
-                    username_input,
-                    password_input,
-                )
-            )
+        form_layout.addRow("用户名", self.add_terminal_username_input)
+        form_layout.addRow("密码", self.add_terminal_password_input)
+        form_layout.addRow("上传", self.add_terminal_browse_button)
+        self.add_terminal_browse_button.clicked.connect(
+            lambda: self.browse_file(self.add_terminal_private_key_input)
+        )
+
+        self.add_terminal_button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.add_terminal_button_box.accepted.connect(
+            lambda: self.save_terminal_entry_btn()
+        )
+        self.add_terminal_button_box.rejected.connect(self.add_terminal_dialog.reject)
+        form_layout.addWidget(self.add_terminal_button_box)
+
+        self.add_terminal_dialog.setLayout(form_layout)
+        self.add_terminal_dialog.exec()
+
+    def update_auth_inputs(self):
+        # 根据选择的认证方法禁用输入控件
+        if self.add_terminal_auth_method_select.currentText() == "密码":
+            self.add_terminal_username_input.setEnabled(True)
+            self.add_terminal_password_input.setEnabled(True)
+            self.add_terminal_private_key_input.setEnabled(False)
+            self.add_terminal_browse_button.setEnabled(False)
         else:
-            form_layout.addRow("私钥文件", private_key_input)
-            button_box.accepted.connect(
-                lambda: self.save_terminal_entry_by_prikey(
-                    name_input, host_input, port_input, dialog, private_key_input
-                )
-            )
-            form_layout.addRow("", browse_button)
-
-        button_box.rejected.connect(dialog.reject)
-        form_layout.addWidget(button_box)
-        dialog.setLayout(form_layout)
-        dialog.exec()
+            self.add_terminal_username_input.setEnabled(True)
+            self.add_terminal_password_input.setEnabled(False)
+            self.add_terminal_private_key_input.setEnabled(True)
+            self.add_terminal_browse_button.setEnabled(True)
 
     def set_terminal_info(
         self, name, host, port, auth_method, username="", password="", private_key=""
@@ -313,6 +337,26 @@ class TerminalManager(QWidget):
         else:
             terminal_output.append("Invalid connection object.")
 
+    def save_terminal_entry_btn(self):
+        if self.add_terminal_auth_method_select.currentText() == "密码":
+            self.save_terminal_entry_by_pwd(
+                self.add_terminal_name_input,
+                self.add_terminal_host_input,
+                self.add_terminal_port_input,
+                self.add_terminal_dialog,
+                self.add_terminal_username_input,
+                self.add_terminal_password_input,
+            )
+        else:
+            self.save_terminal_entry_by_prikey(
+                self.add_terminal_name_input,
+                self.add_terminal_host_input,
+                self.add_terminal_port_input,
+                self.add_terminal_dialog,
+                self.add_terminal_username_input,
+                self.add_terminal_private_key_input,
+            )
+
     def save_terminal_entry_by_pwd(
         self, name, host, port, dialog, username_input, password_input
     ):
@@ -329,7 +373,7 @@ class TerminalManager(QWidget):
         self.save_terminal_entry(terminal_entry, dialog)
 
     def save_terminal_entry_by_prikey(
-        self, name, host, port, dialog, private_key_input
+        self, name, host, port, dialog, username_input, private_key_input
     ):
         """保存基于私钥认证的终端条目"""
         terminal_entry = {
@@ -337,7 +381,7 @@ class TerminalManager(QWidget):
             "host": host.text(),
             "port": port.text(),
             "auth_method": "公钥",
-            "username": "",
+            "username": username_input.text(),
             "password": "",
             "private_key_file": private_key_input.text(),
         }
@@ -386,7 +430,6 @@ class TerminalManager(QWidget):
         except (FileNotFoundError, json.JSONDecodeError):
             # 如果文件不存在或无法解码 JSON，则清空 terminal_list
             self.terminal_list.clear()
-
 
     def reload_terminal_config_display(self):
         """根据 terminal_list 字典更新 QListWidget 列表视图 terminal_list_listW"""
@@ -547,6 +590,7 @@ class TerminalManager(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "选择文件", filter="All Files (*.*)"
         )
+        print(file_path)
         if file_path:
             input_widget.setText(file_path)
 

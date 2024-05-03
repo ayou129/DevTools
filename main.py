@@ -3,9 +3,34 @@ from configparser import ConfigParser
 from message import Message
 from terminal import TerminalManager
 from driver import format_system_info, format_network_info, get_ip_address
-from PySide6.QtWidgets import QApplication, QMainWindow, QSplitter, QTextEdit, QTabWidget, QPushButton, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QInputDialog, QListWidget, QDialog, QLineEdit, QFormLayout, QSpinBox, QComboBox, QDialogButtonBox,QCheckBox,QFileDialog, QSizePolicy, QMessageBox, QListWidgetItem
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QSplitter,
+    QTextEdit,
+    QTabWidget,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+    QLabel,
+    QHBoxLayout,
+    QInputDialog,
+    QListWidget,
+    QDialog,
+    QLineEdit,
+    QFormLayout,
+    QSpinBox,
+    QComboBox,
+    QDialogButtonBox,
+    QCheckBox,
+    QFileDialog,
+    QSizePolicy,
+    QMessageBox,
+    QListWidgetItem,
+)
 from PySide6.QtGui import QIcon, QFont
 from PySide6.QtCore import Qt, QTimer
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -43,7 +68,6 @@ class MainWindow(QMainWindow):
         self.left_widget = QWidget(self.main_splitter)
         self.left_layout = QVBoxLayout(self.left_widget)
 
-
         self.left_widget_title = QLabel("Init...", self.left_widget)
         self.left_layout.addWidget(self.left_widget_title)
 
@@ -77,8 +101,8 @@ class MainWindow(QMainWindow):
         # 示例数据
         terminals = ["终端 1", "终端 2", "终端 3"]
         # for terminal in terminals:
-            # item = QListWidgetItem(terminal)
-            # terminal_manager_list.addItem(item)
+        # item = QListWidgetItem(terminal)
+        # terminal_manager_list.addItem(item)
 
         # 双击终端列表项进行连接
         # terminal_manager_list.itemDoubleClicked.connect(self.connect_terminal)
@@ -101,7 +125,6 @@ class MainWindow(QMainWindow):
         # 添加终端管理器按钮到布局中
         terminal_manager_button = self.terminal_manager.init_ui_btn()
         self.right_layout.addWidget(terminal_manager_button)
-        
 
         # 添加一个添加标签的按钮到标签栏的右上角
         self.add_tab_button = QPushButton("+")
@@ -111,9 +134,7 @@ class MainWindow(QMainWindow):
         # 将标签栏添加到右侧布局中
         self.right_layout.addWidget(self.right_tab_widget)
 
-
         self.main_splitter.setSizes([self.width() // 11, self.width() * 10 // 11])
-
 
     def refresh_info(self):
         """刷新 IP 地址和相关信息"""
@@ -141,6 +162,7 @@ class MainWindow(QMainWindow):
             # 显示初始化的标题文本
             self.left_widget_title.setVisible(True)
             self.left_widget_title.setText("Init...")
+
     def add_new_tab(self):
         """添加新标签页"""
         # 创建新标签页
@@ -156,7 +178,9 @@ class MainWindow(QMainWindow):
         # 创建命令输入框
         command_input = QLineEdit()
         # 将 `handle_command_input` 连接到 `returnPressed` 事件
-        command_input.returnPressed.connect(lambda: self.handle_command_input(command_input, terminal_output))
+        command_input.returnPressed.connect(
+            lambda: self.handle_command_input(command_input, terminal_output)
+        )
         new_layout.addWidget(command_input)
 
         # 给新标签页命名
@@ -170,14 +194,13 @@ class MainWindow(QMainWindow):
         # 您可能需要执行命令并将输出显示在 `terminal_output` 中
         pass
 
-
-
     def show_terminal_manager(self):
         """显示终端管理器的管理界面"""
         # 在这里编写代码以显示管理界面
         # 例如，弹出一个对话框或新的窗口进行管理操作
         print("显示终端管理器的管理界面")
         # 具体的操作根据你的需求来实现
+
     def show_host_info(self):
         # 创建对话框
         host_info_dialog = QDialog(self)
@@ -195,6 +218,7 @@ class MainWindow(QMainWindow):
         host_info_dialog.adjustSize()
 
         host_info_dialog.exec()
+
     def add_host(self):
         # 创建添加新主机的对话框
         dialog = QDialog(self)
@@ -221,7 +245,7 @@ class MainWindow(QMainWindow):
         auth_method_select.currentIndexChanged.connect(self.toggle_auth_layout)
 
         # 初始化布局
-        self.toggle_auth_layout(0)
+        # self.toggle_auth_layout(0)
 
         form_layout.addRow("方法", auth_method_select)
         form_layout.addRow(auth_layout)
@@ -232,7 +256,19 @@ class MainWindow(QMainWindow):
 
         # 创建确认和取消按钮
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(lambda: self.save_host(dialog, name_input.text(), host_input.text(), port_input.value(), auth_method_select.currentText(), self.username_input.text(), self.password_input.text(), self.private_key_input.text(), exec_channel_checkbox.isChecked()))
+        button_box.accepted.connect(
+            lambda: self.save_host(
+                dialog,
+                name_input.text(),
+                host_input.text(),
+                port_input.value(),
+                auth_method_select.currentText(),
+                self.username_input.text(),
+                self.password_input.text(),
+                self.private_key_input.text(),
+                exec_channel_checkbox.isChecked(),
+            )
+        )
         button_box.rejected.connect(dialog.reject)
 
         # 添加表单布局和按钮框到对话框中
@@ -266,7 +302,11 @@ class MainWindow(QMainWindow):
         selected_items = saved_hosts.selectedItems()
         if selected_items:
             current_host = selected_items[0]
-            new_host, ok = QInputDialog.getText(self, "修改指定主机", f"当前主机: {current_host.text()}\n输入新主机地址:")
+            new_host, ok = QInputDialog.getText(
+                self,
+                "修改指定主机",
+                f"当前主机: {current_host.text()}\n输入新主机地址:",
+            )
             if ok:
                 current_host.setText(new_host)
 
