@@ -2,6 +2,7 @@ import sys, json, paramiko, re, os, time, platform
 
 from pathlib import Path
 from configparser import ConfigParser
+
 # import colorama
 from colorama import init, Fore, Back, Style, AnsiToWin32
 from ansi2html import Ansi2HTMLConverter
@@ -36,8 +37,23 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QTextBrowser,
 )
-from PySide6.QtGui import QIcon, QFont, QTextOption
-from PySide6.QtCore import Qt, QTimer, QThread, Signal, QItemSelectionModel
+from PySide6.QtGui import (
+    QIcon,
+    QFont,
+    QColor,
+    QTextOption,
+    QSyntaxHighlighter,
+    QTextCursor,
+    QTextCharFormat,
+)
+from PySide6.QtCore import (
+    Qt,
+    QTimer,
+    QThread,
+    Signal,
+    QItemSelectionModel,
+    QRegularExpression,
+)
 
 # from ansi_text_edit import AnsiTextEdit
 
@@ -255,65 +271,22 @@ class TerminalManager(QWidget):
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         # button_box.accepted.connect(
-            # lambda: self.save_terminal_connection(
-            #     name_input.text(),
-            #     host_input.text(),
-            #     port_input.value(),
-            #     auth_method_select.currentText(),
-            #     username_input.text(),
-            #     password_input.text(),
-            #     private_key_input.text(),
-            #     dialog,
-            # )
+        # lambda: self.save_terminal_connection(
+        #     name_input.text(),
+        #     host_input.text(),
+        #     port_input.value(),
+        #     auth_method_select.currentText(),
+        #     username_input.text(),
+        #     password_input.text(),
+        #     private_key_input.text(),
+        #     dialog,
+        # )
         # )
         button_box.rejected.connect(dialog.reject)
 
         form_layout.addWidget(button_box)
         dialog.setLayout(form_layout)
         dialog.exec()
-
-    # def save_terminal_connection(
-    #     self, name, host, port, auth_method, username, password, private_key, dialog
-    # ):
-    #     # 创建新的终端连接对象
-    #     connection = TerminalConnection(
-    #         host, port, auth_method, username, password, private_key
-    #     )
-    #     self.create_terminal_tab(connection, name)
-    #     dialog.accept()
-
-    # def create_terminal_tab(self, connection, name):
-    #     """创建新的终端标签页"""
-    #     new_tab = QWidget()
-    #     terminal_layout = QVBoxLayout()
-    #     new_tab.setLayout(terminal_layout)
-
-    #     # 使用 AnsiTextEdit 控件支持 ANSI 颜色代码
-    #     terminal_output = QTextEdit()
-    #     # terminal_output = AnsiTextEdit()
-    #     terminal_layout.addWidget(terminal_output)
-
-    #     command_input = QLineEdit()
-    #     command_input.returnPressed.connect(
-    #         lambda: self.send_command(connection, command_input, terminal_output)
-    #     )
-    #     terminal_layout.addWidget(command_input)
-
-    #     # 添加标签页到 TabWidget
-    #     tab_index = self.tab_widget.addTab(new_tab, name)
-
-    #     # 将连接对象和输出存储在标签页中
-    #     new_tab.connection = connection
-    #     new_tab.terminal_output = terminal_output
-
-    #     # 启动终端线程
-    #     if connection.connect():
-    #         terminal_thread = TerminalThread(connection.ssh_client, terminal_output)
-    #         terminal_thread.output_signal.connect(terminal_output.append)
-    #         terminal_thread.start()
-    #         self.tab_widget.setCurrentIndex(tab_index)
-    #     else:
-    #         terminal_output.append("连接终端失败。")
 
     def save_terminal_entry_btn(self):
         if self.add_terminal_auth_method_select.currentText() == "密码":
@@ -509,8 +482,14 @@ class TerminalManager(QWidget):
         terminal_layout = QVBoxLayout()
         new_tab.setLayout(terminal_layout)
 
-        terminal_output = CustomOutput()
+        terminal_output = QTextEdit()
+        ansi_formatter = AnsiTextFormatter(terminal_output.document())
         terminal_layout.addWidget(terminal_output)
+
+        # 使用 TerminalConnection 创建 SSH 连接
+        connection = TerminalConnection(
+            host, port, username, auth_method, password, private_key
+        )
 
         # 创建命令输入框并连接回车键
         command_input = QLineEdit()
@@ -519,20 +498,14 @@ class TerminalManager(QWidget):
         )
         terminal_layout.addWidget(command_input)
 
-
-        # 使用 TerminalConnection 创建 SSH 连接
-        connection = TerminalConnection(
-            host, port, username, auth_method, password, private_key
-        )
-
         # 启动 SSH 连接并创建终端线程
         if connection.connect():
             # 将连接对象存储在标签页中
             new_tab.connection = connection
-            
+
             # 启动读取终端输出的线程，并连接终端输出信号到终端输出区域
             connection.start_reading_thread(terminal_output)
-            
+
             # 将新标签页添加到 tab_widget 中，并设置为当前激活标签页
             tab_widget.addTab(new_tab, f"{username}@{host}")
             tab_widget.setCurrentIndex(tab_index)
@@ -541,17 +514,18 @@ class TerminalManager(QWidget):
             terminal_output.append("连接终端失败。")
 
     def send_command(self, connection, command_input, terminal_output):
-        command = command_input.text()
-        command_input.clear()
-        connection.send_command(command)
-
+        """发送命令到远程终端"""
+        command = command_input.text()  # 获取输入框中的命令
+        if connection and command:
+            # 使用 connection 对象的 send_command 方法发送命令
+            connection.send_command(command)
+            command_input.clear()  # 清空命令输入框
 
     def get_tab_widget(self):
         parent_widget = self.parent()
         if parent_widget and isinstance(parent_widget, QWidget):
             return parent_widget.findChild(QTabWidget)
         return None
-
 
     def browse_file(self, input_widget):
         """浏览文件"""
@@ -572,13 +546,13 @@ class TerminalConnection:
         # 定义一个信号，用于传递终端输出
         output_signal = Signal(str)
 
-        def __init__(self, ssh_client):
+        def __init__(self, ssh_client, terminal_output):
             super().__init__()
             self.ssh_client = ssh_client
             self.channel = None
             self.is_running = True
-            self.terminal_output_widget = TerminalOutputWidget()
-
+            self.terminal_output = terminal_output  # 终端输出组件
+            self.ansi_formatter = AnsiTextFormatter(self.terminal_output)
         def run(self):
             """在终端会话中读取输出并发出信号"""
             # 创建交互式终端会话
@@ -587,9 +561,10 @@ class TerminalConnection:
             while self.is_running:
                 if self.channel.recv_ready():
                     # 读取终端输出并解码
-                    output = self.channel.recv(4096).decode('utf-8')
-                    output = self.terminal_output_widget.format(output)
-                    # 通过信号将输出传递出去
+                    output = self.channel.recv(4096).decode("utf-8")
+
+                    self.ansi_formatter.set_text_formatting(output)
+
                     self.output_signal.emit(output)
                 # 休眠 100 毫秒以避免过度占用 CPU
                 QThread.msleep(100)
@@ -599,6 +574,7 @@ class TerminalConnection:
             self.is_running = False
             if self.channel:
                 self.channel.close()
+            self.terminal_output.clear()
 
     def __init__(
         self, host, port, username, auth_method, password=None, private_key=None
@@ -634,8 +610,6 @@ class TerminalConnection:
                     key_filename=self.private_key,
                 )
 
-            # 创建读取线程
-            self.reading_thread = self.ReadingThread(self.ssh_client)
             return True
         except Exception as e:
             print(f"连接 SSH 时发生错误：{e}")
@@ -643,18 +617,19 @@ class TerminalConnection:
 
     def start_reading_thread(self, terminal_output):
         """启动读取终端输出的线程"""
-        self.reading_thread = self.ReadingThread(self.ssh_client)
-        
-        # 连接输出信号到终端输出组件的 appendPlainText 或 appendHtml 方法
+        self.reading_thread = self.ReadingThread(self.ssh_client, terminal_output)
+
+        # 连接输出信号到终端输出组件的 appendPlainText 方法
         self.reading_thread.output_signal.connect(terminal_output.append)
-        
+
+
         # 启动读取线程
         self.reading_thread.start()
 
     def send_command(self, command):
         """发送命令到终端"""
         if self.reading_thread and self.reading_thread.channel:
-            self.reading_thread.channel.send(command + '\n')
+            self.reading_thread.channel.send(command + "\n")
 
     def stop_reading_thread(self):
         """停止读取终端输出"""
@@ -669,78 +644,155 @@ class TerminalConnection:
         self.stop_reading_thread()
 
 
-class CustomOutput(QWidget):
-    def __init__(self):
-        super().__init__()
-        # 存储纯文本的字符串
-        self.text_content = ""
-
-        # 创建一个用于显示纯文本的 QLabel 或 QTextBrowser
-        self.display_widget = QTextBrowser()  # 或者 QLabel()，取决于您的需求
-        layout = QVBoxLayout()
-        layout.addWidget(self.display_widget)
-        self.setLayout(layout)
-
-    def append(self, output):
-        """处理带有 ANSI 控制码的文本，并追加到纯文本内容"""
-        print(output)
-        self.text_content += self.parse_ansi(output)
-
-        self.display_widget.setPlainText(self.text_content)
-    def parse_ansi(self, text):
-        """解析带有 ANSI 控制码的文本，并返回纯文本"""
-        ansi_regex = re.compile(r'\x1B\[(\d+)(?:;(\d+))?m')
-        pos = 0
-        result = []
-        while pos < len(text):
-            match = ansi_regex.search(text, pos)
-            if match:
-                start, end = match.span()
-                result.append(text[pos:start])
-                pos = end
-            else:
-                result.append(text[pos:])
-                break
-        return ''.join(result)
-    
-    def clear(self):
-        """清除存储的纯文本内容"""
-        self.text_content = ""
-        # 在需要时可以添加其他清除行为，例如刷新显示
-        print("清除文本内容")
-
-
-
+# 初始化 Colorama
 init()
-class TerminalOutputWidget():
-    """自定义的终端输出窗口，用于支持 ANSI 颜色代码"""
 
-    def __init__(self):
-        # 根据操作系统选择使用
-        print(platform.system())
-        # if platform.system() == 'Windows':
-            # 在 Windows 系统上，使用 AnsiToWin32 包装 QPlainTextEdit 控件
-        self.ansi_converter = AnsiToWin32(self, convert=True, strip=False)
-        self.stream = self.ansi_converter.stream
-        # else:
-            # 在其他系统上，使用 ansi2html 将 ANSI 颜色代码转换为 HTML
-            # self.converter = Ansi2HTMLConverter()
-            # self.stream = self  # 使用 QPlainTextEdit 作为流
 
-   
-    def format(self, output):
-        """将输出追加到文本编辑器中"""
-        if platform.system() == 'Windows':
-            # 在 Windows 上使用 AnsiToWin32 进行转换
-            return self.ansi_converter.write(output)
-        else:
-            return output
+class AnsiTextFormatter:
+    def __init__(self, text_edit: QTextEdit):
+        self.text_edit = text_edit
+        self.default_text_char_format = QTextCharFormat()
+        self.escape_sequence_expression = QRegularExpression(r'\x1B\[(\d+(;\d+)*)m')
 
-    def write(self, text):
-        """定义 write 方法，以便作为输出流使用"""
-        self.appendPlainText(text)
+    def parse_escape_sequence(self, sequence, text_char_format):
+        """
+        根据 ANSI 控制码属性对文本格式进行设置。
+        """
+        # 获取属性列表
+        attributes = sequence.split(';')
+        for attribute_str in attributes:
+            try:
+                attribute = int(attribute_str)
+                # 调用解析单个属性的方法
+                self.parse_attribute(attribute, text_char_format)
+            except ValueError:
+                pass  # 忽略无法解析的属性
 
-    def flush(self):
-        """刷新缓冲区中的内容"""
-        self.clear()
+    def parse_attribute(self, attribute, text_char_format):
+        """
+        根据单个 ANSI 属性对文本格式进行设置。
+        """
+        # ANSI 属性 0：重置所有属性
+        if attribute == 0:
+            text_char_format = self.default_text_char_format
 
+        # ANSI 属性 1：粗体
+        elif attribute == 1:
+            text_char_format.setFontWeight(QFont.Bold)
+
+        # ANSI 属性 3：斜体
+        elif attribute == 3:
+            text_char_format.setFontItalic(True)
+
+        # ANSI 属性 4：下划线
+        elif attribute == 4:
+            text_char_format.setUnderline(True)
+
+        # ANSI 属性 7：反转
+        elif attribute == 7:
+            foreground = text_char_format.foreground()
+            background = text_char_format.background()
+            text_char_format.setForeground(background)
+            text_char_format.setBackground(foreground)
+
+        # ANSI 属性 9：删除线
+        elif attribute == 9:
+            text_char_format.setFontStrikeOut(True)
+
+        # ANSI 属性 30-37：前景色
+        elif 30 <= attribute <= 37:
+            color = self.get_color(attribute - 30)
+            text_char_format.setForeground(color)
+
+        # ANSI 属性 40-47：背景色
+        elif 40 <= attribute <= 47:
+            color = self.get_color(attribute - 40)
+            text_char_format.setBackground(color)
+
+        # ANSI 属性 90-97：高强度前景色
+        elif 90 <= attribute <= 97:
+            color = self.get_bright_color(attribute - 90)
+            text_char_format.setForeground(color)
+
+        # ANSI 属性 100-107：高强度背景色
+        elif 100 <= attribute <= 107:
+            color = self.get_bright_color(attribute - 100)
+            text_char_format.setBackground(color)
+
+    def get_color(self, index):
+        """
+        根据索引获取标准 ANSI 颜色。
+        """
+        colors = [
+            QColor('black'), QColor('red'), QColor('green'), QColor('yellow'),
+            QColor('blue'), QColor('magenta'), QColor('cyan'), QColor('white')
+        ]
+        return colors[index]
+
+    def get_bright_color(self, index):
+        """
+        根据索引获取高强度 ANSI 颜色。
+        """
+        colors = [
+            QColor('darkGray'), QColor('darkRed'), QColor('darkGreen'),
+            QColor('darkYellow'), QColor('darkBlue'), QColor('darkMagenta'),
+            QColor('darkCyan'), QColor('lightGray')
+        ]
+        return colors[index]
+    
+    def set_text_formatting(self, text):
+        """设置文本格式化"""
+        # 获取 QTextDocument 对象
+        document = self.text_edit.document()
+        
+        # 使用 QTextCursor 来进行文本编辑
+        cursor = QTextCursor(document)
+        
+        # 设定初始光标位置
+        cursor.movePosition(QTextCursor.Start)
+        
+        # 初始化文本格式为默认格式
+        text_char_format = self.default_text_char_format
+        
+        # 开始文本编辑块
+        cursor.beginEditBlock()
+        
+        # 定义起始偏移量
+        offset = 0
+        
+        # 使用 QRegularExpression 查找匹配的 ANSI 转义序列
+        while True:
+            match = self.escape_sequence_expression.match(text, offset)
+            if not match.hasMatch():
+                # 如果没有匹配，插入剩余文本并跳出循环
+                remaining_text = text[offset:]
+                cursor.insertText(remaining_text, text_char_format)
+                break
+            
+            # 获取匹配的起始位置和长度
+            start_pos = match.capturedStart()
+            match_length = match.capturedLength()
+            
+            # 插入匹配位置前的普通文本
+            normal_text = text[offset:start_pos]
+            cursor.insertText(normal_text, text_char_format)
+            
+            # 更新偏移量到匹配位置后的位置
+            offset = start_pos + match_length
+            
+            # 获取匹配到的 ANSI 转义序列
+            ansi_sequence = match.captured(1)
+            
+            # 将 ANSI 转义序列转换为字符串列表
+            attributes = ansi_sequence.split(';')
+            
+            # 遍历解析出来的属性并调用 `parse_escape_sequence`
+            for attribute in attributes:
+                # 将属性转换为整数类型
+                attribute_int = int(attribute)
+                
+                # 调用 `parse_escape_sequence` 方法
+                self.parse_escape_sequence(attribute_int, text_char_format)
+            
+        # 结束文本编辑块
+        cursor.endEditBlock()

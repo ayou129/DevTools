@@ -8,69 +8,6 @@
             "username": "liguoxin",
             "password": "li680910",
             "private_key": null
-        },
-        "3": {
-            "name": "3",
-            "host": "127.0.0.1",
-            "port": "22",
-            "auth_method": "\u5bc6\u7801",
-            "username": "liguoxin",
-            "password": "li68",
-            "private_key": null
-        },
-        "4": {
-            "name": "4",
-            "host": "127.0.0.1",
-            "port": "22",
-            "auth_method": "\u5bc6\u7801",
-            "username": "liguoxin",
-            "password": "li68",
-            "private_key": null
-        },
-        "233": {
-            "name": "233",
-            "host": "127.0.0.1",
-            "port": "22",
-            "auth_method": "\u5bc6\u7801",
-            "username": "liguoxin",
-            "password": "li68",
-            "private_key": null
-        },
-        "21": {
-            "name": "21",
-            "host": "127.0.0.1",
-            "port": "22",
-            "auth_method": "\u5bc6\u7801",
-            "username": "liguoxin",
-            "password": "li68",
-            "private_key": null
-        },
-        "2123123": {
-            "name": "2123123",
-            "host": "127.0.0.1",
-            "port": "22",
-            "auth_method": "\u5bc6\u7801",
-            "username": "liguoxin",
-            "password": "li68",
-            "private_key": null
-        },
-        "213123": {
-            "name": "213123",
-            "host": "127.0.0.1",
-            "port": "22",
-            "auth_method": "\u516c\u94a5",
-            "username": "liguoxin",
-            "password": "",
-            "private_key": "/Users/liguoxin/Desktop/web/devTools/README.md"
-        },
-        "2123": {
-            "name": "2123",
-            "host": "127.0.0.1",
-            "port": "22",
-            "auth_method": "\u5bc6\u7801",
-            "username": "liguoxin",
-            "password": "li68",
-            "private_key": null
         }
     }
 }
