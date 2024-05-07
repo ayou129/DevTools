@@ -488,13 +488,20 @@ class TerminalManager(QWidget):
 
         # 使用 TerminalConnection 创建 SSH 连接
         connection = TerminalConnection(
-            host, port, username, auth_method, password, private_key
+            new_tab,
+            terminal_output,
+            host,
+            port,
+            username,
+            auth_method,
+            password,
+            private_key,
         )
 
         # 创建命令输入框并连接回车键
         command_input = QLineEdit()
         command_input.returnPressed.connect(
-            lambda: self.send_command(connection, command_input, terminal_output)
+            lambda: self.send_command(connection, command_input)
         )
         terminal_layout.addWidget(command_input)
 
@@ -504,7 +511,7 @@ class TerminalManager(QWidget):
             new_tab.connection = connection
 
             # 启动读取终端输出的线程，并连接终端输出信号到终端输出区域
-            connection.start_reading_thread(terminal_output)
+            connection.start_reading_thread()
 
             # 将新标签页添加到 tab_widget 中，并设置为当前激活标签页
             tab_widget.addTab(new_tab, f"{username}@{host}")
@@ -513,7 +520,7 @@ class TerminalManager(QWidget):
         else:
             terminal_output.append("连接终端失败。")
 
-    def send_command(self, connection, command_input, terminal_output):
+    def send_command(self, connection, command_input):
         """发送命令到远程终端"""
         command = command_input.text()  # 获取输入框中的命令
         if connection and command:
@@ -553,6 +560,7 @@ class TerminalConnection:
             self.is_running = True
             self.terminal_output = terminal_output  # 终端输出组件
             self.ansi_formatter = TerminalEmulator()
+            # self.first_connect = True
 
         def run(self):
             """在终端会话中读取输出并发出信号"""
@@ -563,13 +571,14 @@ class TerminalConnection:
                 if self.channel.recv_ready():
                     # 读取终端输出并解码
                     output = self.channel.recv(4096).decode("utf-8")
-                    print(output)
+                    # print(output)
 
-                    output, cursor_moves = self.ansi_formatter.parse(output)
+                    output = self.ansi_formatter.parse(output)
 
-                    print(output)
+                    # print(output)
 
                     self.output_signal.emit(output)
+
                 # 休眠 100 毫秒以避免过度占用 CPU
                 QThread.msleep(100)
 
@@ -581,7 +590,15 @@ class TerminalConnection:
             self.terminal_output.clear()
 
     def __init__(
-        self, host, port, username, auth_method, password=None, private_key=None
+        self,
+        terminal_tab,
+        terminal_output,
+        host,
+        port,
+        username,
+        auth_method,
+        password=None,
+        private_key=None,
     ):
         self.host = host
         self.port = port
@@ -589,7 +606,8 @@ class TerminalConnection:
         self.auth_method = auth_method
         self.password = password
         self.private_key = private_key
-
+        self.terminal_tab = terminal_tab
+        self.terminal_output = terminal_output
         self.ssh_client = paramiko.SSHClient()
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -619,17 +637,27 @@ class TerminalConnection:
             print(f"连接 SSH 时发生错误：{e}")
             return False
 
-    def start_reading_thread(self, terminal_output):
+    def start_reading_thread(self):
         """启动读取终端输出的线程"""
-        self.reading_thread = self.ReadingThread(self.ssh_client, terminal_output)
+        self.reading_thread = self.ReadingThread(self.ssh_client, self.terminal_output)
         # 连接输出信号到终端输出组件的 appendPlainText 方法
-        self.reading_thread.output_signal.connect(terminal_output.append)
+        self.reading_thread.output_signal.connect(self.p_output)
 
         # 启动读取线程
         self.reading_thread.start()
 
+    def p_output(self, parse_content):
+        print(parse_content)
+        if isinstance(parse_content, dict) and "title" in parse_content:
+            if parse_content["title"].strip():  # 检查 title 是否非空或非只有空白字符
+                self.terminal_tab.setWindowTitle(parse_content["title"])
+
+        if isinstance(parse_content, dict) and "content" in parse_content:
+            if parse_content["content"].strip():
+                self.terminal_output.append(parse_content["content"])
+
     def send_command(self, command):
-        print(command)
+        # print(command)
         """发送命令到终端"""
         if self.reading_thread and self.reading_thread.channel:
             self.reading_thread.channel.send(command + "\n")
@@ -685,27 +713,79 @@ class TerminalEmulator:
         }
 
     def parse(self, text):
-        # 用于捕捉所有ANSI转义序列的模式
-        pattern = re.compile(r"\x1b\[(\d+(?:;\d+)*)m")
-        formatted_text = []
-        last_end = 0
-        cursor_moves = []
+        s = text
+        title = ""
+        # 解析 ANSI 转义序列
+        ## 解析窗口标题，找出标题内容，存储到title待会儿返回，然后删除开头至结尾的内容
+        # 先提取标题内容
+        title_pattern = re.compile(r"\x1b\]2;([^\x07]+)\x07")
+        match = title_pattern.search(s)
+        if match:
+            title = match.group(1)
+            # 提取标题前的内容和标题后的内容
+            start_index = match.start()
+            title_start = s[:start_index]
+            title_end = s[match.end() :]
+            # 删除标题序列
+            s = title_pattern.sub("", s)
+            # 在标题前的内容中检查并删除百分号
+            title_start = title_start.replace("%", "")
+            # 重新组合字符串
+            s = title_start + title_end
+        print(1, s)
+        # 提取其他转义序列
+        patterns = {
+            "short_title": re.compile(r"\x1b\]1;([^\x07]+)\x07"),
+            "clear_screen": re.compile(r"\x1b\[J"),
+            "clear_line": re.compile(r"\x1b\[K"),
+            "app_mode": re.compile(r"\x1b\[\?1h"),
+            "paste_mode": re.compile(r"\x1b\[\?2004h"),
+        }
+        
+        sequences = {}
+        for key, pattern in patterns.items():
+            match = pattern.search(s)
+            if match:
+                sequences[key] = match.group()
+                # 删除匹配的序列
+                s = pattern.sub("", s)
+        print(2, s)
+        # 结果输出
+        return {"title": title, "content": s, "extracted_sequences": sequences}
 
-        for match in pattern.finditer(text):
-            start, end = match.span()
-            if start > last_end:
-                # 将当前样式应用到文本上
-                formatted_text.append(self.apply_current_style(text[last_end:start]))
+    # def parse(self, text):
+    #     # 将终端返回的文本进行处理：解析 ANSI 转义序列并应用样式
+    #     # 1. 解析 ANSI 转义序列，其中包括样式以及特定的控制序列(ANSI 控制代码，如光标移动等)
+    #     ## 样式序列 直接将样式替换掉 ANSI样式序列
+    #     ## 控制序列 暂时不做处理，但是目前只打印，然后删除
+    #     ### 实际代码如下：
+    #     control_sequence_pattern = re.compile(r"\x1b\[([?]?[\d;]*[a-zA-Z])")
+    #     pattern = re.compile(r"\x1b\[(\d+(?:;\d+)*)m")
 
-            # 应用序列码到当前样式
-            sequence = match.group(1)
-            if not self.apply_sequence(sequence):
-                cursor_moves.append(sequence)
-            last_end = end
+    #     formatted_text = []
+    #     last_end = 0
+    #     cursor_moves = []
 
-        # 添加最后一个ANSI序列后的文本部分
-        formatted_text.append(self.apply_current_style(text[last_end:]))
-        return "".join(formatted_text), cursor_moves
+    #     for match in pattern.finditer(text):
+    #         start, end = match.span()
+    #         if start > last_end:
+    #             # 将当前样式应用到文本上
+    #             formatted_text.append(self.apply_current_style(text[last_end:start]))
+
+    #         sequence = match.group(1)
+    #         if not self.apply_sequence(sequence):
+    #             cursor_moves.append(sequence)
+    #         last_end = end
+
+    #     control_sequence_pattern = re.compile(r"\x1b\[([?]?[\d;]*[a-zA-Z])")
+    #     control_text = control_sequence_pattern.sub("", text[last_end:])
+    #     formatted_text.append(self.apply_current_style(control_text))
+
+    #     # 添加最后一个ANSI序列后的文本部分
+    #     formatted_text.append(self.apply_current_style(text[last_end:]))
+
+    #     # 返回 文本 设置标题的内容 光标移动的内容
+    #     return "".join(formatted_text), "".join(cursor_moves), ""
 
     def apply_sequence(self, sequence):
         # 分解序列并应用对应的样式更改
@@ -720,17 +800,16 @@ class TerminalEmulator:
         # 根据当前样式生成样式化的文本
         style_tags = []
         if self.current_style["bold"]:
-            style_tags.append("bold")
+            style_tags.append("font-weight: bold")
         if self.current_style["italic"]:
-            style_tags.append("italic")
+            style_tags.append("font-style: italic")
         if self.current_style["underline"]:
-            style_tags.append("underline")
+            style_tags.append("text-decoration: underline")
         if self.current_style["foreground"]:
             style_tags.append(f'color: {self.current_style["foreground"]}')
         if self.current_style["background"]:
             style_tags.append(f'background-color: {self.current_style["background"]}')
         if self.current_style["inverse"]:
-            # 反转前景和背景
             fg = self.current_style.get("foreground", "black")
             bg = self.current_style.get("background", "white")
             style_tags.append(f"color: {bg}; background-color: {fg}")
@@ -759,192 +838,3 @@ class TerminalEmulator:
 
     def reset_format(self):
         self.reset()
-
-
-# class AnsiTextFormatter:
-#     @staticmethod
-#     def ansi_to_html(text):
-#         # ANSI 转义序列到 HTML 的映射
-#         ansi_to_html_map = {
-#             r'\x1b\[0m': '</span>',  # 重置
-#             r'\x1b\[1m': '<span style="font-weight:bold;">',  # 粗体
-#             r'\x1b\[3m': '<span style="font-style:italic;">',  # 斜体
-#             r'\x1b\[4m': '<span style="text-decoration:underline;">',  # 下划线
-#             r'\x1b\[30m': '<span style="color:black;">',  # 黑色文本
-#             r'\x1b\[31m': '<span style="color:red;">',    # 红色文本
-#             r'\x1b\[32m': '<span style="color:green;">',  # 绿色文本
-#             r'\x1b\[33m': '<span style="color:yellow;">', # 黄色文本
-#             r'\x1b\[34m': '<span style="color:blue;">',   # 蓝色文本
-#             r'\x1b\[35m': '<span style="color:magenta;">',# 品红文本
-#             r'\x1b\[36m': '<span style="color:cyan;">',   # 青色文本
-#             r'\x1b\[37m': '<span style="color:white;">',  # 白色文本
-#             r'\x1b\[7m': '<span style="background-color:black; color:white;">',  # 反白
-#         }
-
-#         # 替换所有 ANSI 序列
-#         html_text = text
-#         for ansi, html in ansi_to_html_map.items():
-#             html_text = re.sub(ansi, html, html_text)
-
-#         # 确保所有打开的 <span> 都有对应的关闭 </span>
-#         open_tags = html_text.count('<span')
-#         close_tags = html_text.count('</span')
-#         closing_tags_needed = open_tags - close_tags
-#         if closing_tags_needed > 0:
-#             html_text += '</span>' * closing_tags_needed
-
-#         return html_text
-
-
-# 初始化 Colorama
-# init()
-
-
-# class AnsiTextFormatter:
-#     def __init__(self, text_edit: QTextEdit):
-#         self.text_edit = text_edit
-#         self.default_text_char_format = QTextCharFormat()
-#         self.escape_sequence_expression = QRegularExpression(r'\x1B\[(\d+(;\d+)*)m')
-
-#     def parse_escape_sequence(self, sequence, text_char_format):
-#         """
-#         根据 ANSI 控制码属性对文本格式进行设置。
-#         """
-#         # 获取属性列表
-#         attributes = sequence.split(';')
-#         for attribute_str in attributes:
-#             try:
-#                 attribute = int(attribute_str)
-#                 # 调用解析单个属性的方法
-#                 self.parse_attribute(attribute, text_char_format)
-#             except ValueError:
-#                 pass  # 忽略无法解析的属性
-
-#     def parse_attribute(self, attribute, text_char_format):
-#         """
-#         根据单个 ANSI 属性对文本格式进行设置。
-#         """
-#         # ANSI 属性 0：重置所有属性
-#         if attribute == 0:
-#             text_char_format = self.default_text_char_format
-
-#         # ANSI 属性 1：粗体
-#         elif attribute == 1:
-#             text_char_format.setFontWeight(QFont.Bold)
-
-#         # ANSI 属性 3：斜体
-#         elif attribute == 3:
-#             text_char_format.setFontItalic(True)
-
-#         # ANSI 属性 4：下划线
-#         elif attribute == 4:
-#             text_char_format.setUnderline(True)
-
-#         # ANSI 属性 7：反转
-#         elif attribute == 7:
-#             foreground = text_char_format.foreground()
-#             background = text_char_format.background()
-#             text_char_format.setForeground(background)
-#             text_char_format.setBackground(foreground)
-
-#         # ANSI 属性 9：删除线
-#         elif attribute == 9:
-#             text_char_format.setFontStrikeOut(True)
-
-#         # ANSI 属性 30-37：前景色
-#         elif 30 <= attribute <= 37:
-#             color = self.get_color(attribute - 30)
-#             text_char_format.setForeground(color)
-
-#         # ANSI 属性 40-47：背景色
-#         elif 40 <= attribute <= 47:
-#             color = self.get_color(attribute - 40)
-#             text_char_format.setBackground(color)
-
-#         # ANSI 属性 90-97：高强度前景色
-#         elif 90 <= attribute <= 97:
-#             color = self.get_bright_color(attribute - 90)
-#             text_char_format.setForeground(color)
-
-#         # ANSI 属性 100-107：高强度背景色
-#         elif 100 <= attribute <= 107:
-#             color = self.get_bright_color(attribute - 100)
-#             text_char_format.setBackground(color)
-
-#     def get_color(self, index):
-#         """
-#         根据索引获取标准 ANSI 颜色。
-#         """
-#         colors = [
-#             QColor('black'), QColor('red'), QColor('green'), QColor('yellow'),
-#             QColor('blue'), QColor('magenta'), QColor('cyan'), QColor('white')
-#         ]
-#         return colors[index]
-
-#     def get_bright_color(self, index):
-#         """
-#         根据索引获取高强度 ANSI 颜色。
-#         """
-#         colors = [
-#             QColor('darkGray'), QColor('darkRed'), QColor('darkGreen'),
-#             QColor('darkYellow'), QColor('darkBlue'), QColor('darkMagenta'),
-#             QColor('darkCyan'), QColor('lightGray')
-#         ]
-#         return colors[index]
-
-#     def set_text_formatting(self, text):
-#         """设置文本格式化"""
-#         # 获取 QTextDocument 对象
-#         document = self.text_edit.document()
-
-#         # 使用 QTextCursor 来进行文本编辑
-#         cursor = QTextCursor(document)
-
-#         # 设定初始光标位置
-#         cursor.movePosition(QTextCursor.Start)
-
-#         # 初始化文本格式为默认格式
-#         text_char_format = self.default_text_char_format
-
-#         # 开始文本编辑块
-#         cursor.beginEditBlock()
-
-#         # 定义起始偏移量
-#         offset = 0
-
-#         # 使用 QRegularExpression 查找匹配的 ANSI 转义序列
-#         while True:
-#             match = self.escape_sequence_expression.match(text, offset)
-#             if not match.hasMatch():
-#                 # 如果没有匹配，插入剩余文本并跳出循环
-#                 remaining_text = text[offset:]
-#                 cursor.insertText(remaining_text, text_char_format)
-#                 break
-
-#             # 获取匹配的起始位置和长度
-#             start_pos = match.capturedStart()
-#             match_length = match.capturedLength()
-
-#             # 插入匹配位置前的普通文本
-#             normal_text = text[offset:start_pos]
-#             cursor.insertText(normal_text, text_char_format)
-
-#             # 更新偏移量到匹配位置后的位置
-#             offset = start_pos + match_length
-
-#             # 获取匹配到的 ANSI 转义序列
-#             ansi_sequence = match.captured(1)
-
-#             # 将 ANSI 转义序列转换为字符串列表
-#             attributes = ansi_sequence.split(';')
-
-#             # 遍历解析出来的属性并调用 `parse_escape_sequence`
-#             for attribute in attributes:
-#                 # 将属性转换为整数类型
-#                 attribute_int = int(attribute)
-
-#                 # 调用 `parse_escape_sequence` 方法
-#                 self.parse_escape_sequence(attribute_int, text_char_format)
-
-#         # 结束文本编辑块
-#         cursor.endEditBlock()
