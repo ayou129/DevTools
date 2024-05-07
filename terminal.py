@@ -483,7 +483,7 @@ class TerminalManager(QWidget):
         new_tab.setLayout(terminal_layout)
 
         terminal_output = QTextEdit()
-        ansi_formatter = AnsiTextFormatter(terminal_output.document())
+        # ansi_formatter = AnsiTextFormatter(terminal_output.document())
         terminal_layout.addWidget(terminal_output)
 
         # 使用 TerminalConnection 创建 SSH 连接
@@ -552,7 +552,7 @@ class TerminalConnection:
             self.channel = None
             self.is_running = True
             self.terminal_output = terminal_output  # 终端输出组件
-            self.ansi_formatter = AnsiTextFormatter(self.terminal_output)
+            # self.ansi_formatter = AnsiTextFormatter(self.terminal_output)
         def run(self):
             """在终端会话中读取输出并发出信号"""
             # 创建交互式终端会话
@@ -563,7 +563,7 @@ class TerminalConnection:
                     # 读取终端输出并解码
                     output = self.channel.recv(4096).decode("utf-8")
 
-                    self.ansi_formatter.set_text_formatting(output)
+                    # self.ansi_formatter.set_text_formatting(output)
 
                     self.output_signal.emit(output)
                 # 休眠 100 毫秒以避免过度占用 CPU
