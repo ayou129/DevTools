@@ -4,7 +4,7 @@ from pathlib import Path
 from configparser import ConfigParser
 
 # import colorama
-from colorama import init, Fore, Back, Style, AnsiToWin32
+# from colorama import init, Fore, Back, Style
 from ansi2html import Ansi2HTMLConverter
 
 from message import Message
@@ -421,12 +421,12 @@ class TerminalManager(QWidget):
         # print(self.terminal_list_listW.selectedItems())
         for i in range(self.terminal_list_listW.count()):
             item = self.terminal_list_listW.item(i)
-            print(f"项目 {i}: 标志={item.flags()}, 选中状态={item.checkState()}")
+            # print(f"项目 {i}: 标志={item.flags()}, 选中状态={item.checkState()}")
             if item.checkState() == Qt.CheckState.Checked:
                 terminal_entry = item.data(Qt.UserRole)
                 terminal_name = terminal_entry.get("name")
                 if terminal_name in self.terminal_list:
-                    print(self.terminal_list[terminal_name])
+                    # print(self.terminal_list[terminal_name])
                     del self.terminal_list[terminal_name]
 
         # 保存更新后的终端配置
@@ -462,7 +462,7 @@ class TerminalManager(QWidget):
 
     def connect_terminal(self, item):
         terminal_info = item.data(Qt.UserRole)
-        print(terminal_info)
+        # print(terminal_info)
         # 从 JSON 对象中提取所需的信息
         name = terminal_info.get("name")
         host = terminal_info.get("host")
@@ -552,7 +552,8 @@ class TerminalConnection:
             self.channel = None
             self.is_running = True
             self.terminal_output = terminal_output  # 终端输出组件
-            # self.ansi_formatter = AnsiTextFormatter(self.terminal_output)
+            self.ansi_formatter = TerminalEmulator()
+
         def run(self):
             """在终端会话中读取输出并发出信号"""
             # 创建交互式终端会话
@@ -562,8 +563,11 @@ class TerminalConnection:
                 if self.channel.recv_ready():
                     # 读取终端输出并解码
                     output = self.channel.recv(4096).decode("utf-8")
+                    print(output)
 
-                    # self.ansi_formatter.set_text_formatting(output)
+                    output, cursor_moves = self.ansi_formatter.parse(output)
+
+                    print(output)
 
                     self.output_signal.emit(output)
                 # 休眠 100 毫秒以避免过度占用 CPU
@@ -618,15 +622,14 @@ class TerminalConnection:
     def start_reading_thread(self, terminal_output):
         """启动读取终端输出的线程"""
         self.reading_thread = self.ReadingThread(self.ssh_client, terminal_output)
-
         # 连接输出信号到终端输出组件的 appendPlainText 方法
         self.reading_thread.output_signal.connect(terminal_output.append)
-
 
         # 启动读取线程
         self.reading_thread.start()
 
     def send_command(self, command):
+        print(command)
         """发送命令到终端"""
         if self.reading_thread and self.reading_thread.channel:
             self.reading_thread.channel.send(command + "\n")
@@ -644,155 +647,304 @@ class TerminalConnection:
         self.stop_reading_thread()
 
 
+class TerminalEmulator:
+    def __init__(self):
+        self.ansi_escape_codes = {
+            "0": self.reset_format,
+            "1": self.bold,
+            "3": self.italic,
+            "4": self.underline,
+            "30": lambda: self.set_foreground("black"),
+            "31": lambda: self.set_foreground("red"),
+            "32": lambda: self.set_foreground("green"),
+            "33": lambda: self.set_foreground("yellow"),
+            "34": lambda: self.set_foreground("blue"),
+            "35": lambda: self.set_foreground("magenta"),
+            "36": lambda: self.set_foreground("cyan"),
+            "37": lambda: self.set_foreground("white"),
+            "40": lambda: self.set_background("black"),
+            "41": lambda: self.set_background("red"),
+            "42": lambda: self.set_background("green"),
+            "43": lambda: self.set_background("yellow"),
+            "44": lambda: self.set_background("blue"),
+            "45": lambda: self.set_background("magenta"),
+            "46": lambda: self.set_background("cyan"),
+            "47": lambda: self.set_background("white"),
+            "7": self.inverse,
+        }
+        self.reset()
+
+    def reset(self):
+        self.current_style = {
+            "bold": False,
+            "italic": False,
+            "underline": False,
+            "foreground": None,
+            "background": None,
+            "inverse": False,
+        }
+
+    def parse(self, text):
+        # 用于捕捉所有ANSI转义序列的模式
+        pattern = re.compile(r"\x1b\[(\d+(?:;\d+)*)m")
+        formatted_text = []
+        last_end = 0
+        cursor_moves = []
+
+        for match in pattern.finditer(text):
+            start, end = match.span()
+            if start > last_end:
+                # 将当前样式应用到文本上
+                formatted_text.append(self.apply_current_style(text[last_end:start]))
+
+            # 应用序列码到当前样式
+            sequence = match.group(1)
+            if not self.apply_sequence(sequence):
+                cursor_moves.append(sequence)
+            last_end = end
+
+        # 添加最后一个ANSI序列后的文本部分
+        formatted_text.append(self.apply_current_style(text[last_end:]))
+        return "".join(formatted_text), cursor_moves
+
+    def apply_sequence(self, sequence):
+        # 分解序列并应用对应的样式更改
+        parts = sequence.split(";")
+        for part in parts:
+            if part in self.ansi_escape_codes:
+                self.ansi_escape_codes[part]()
+                return True
+        return False
+
+    def apply_current_style(self, text):
+        # 根据当前样式生成样式化的文本
+        style_tags = []
+        if self.current_style["bold"]:
+            style_tags.append("bold")
+        if self.current_style["italic"]:
+            style_tags.append("italic")
+        if self.current_style["underline"]:
+            style_tags.append("underline")
+        if self.current_style["foreground"]:
+            style_tags.append(f'color: {self.current_style["foreground"]}')
+        if self.current_style["background"]:
+            style_tags.append(f'background-color: {self.current_style["background"]}')
+        if self.current_style["inverse"]:
+            # 反转前景和背景
+            fg = self.current_style.get("foreground", "black")
+            bg = self.current_style.get("background", "white")
+            style_tags.append(f"color: {bg}; background-color: {fg}")
+
+        style_string = "; ".join(style_tags)
+        return f'<span style="{style_string}">{text}</span>' if style_tags else text
+
+    def set_foreground(self, color):
+        self.current_style["foreground"] = color
+
+    def set_background(self, color):
+        self.current_style["background"] = color
+
+    def bold(self):
+        self.current_style["bold"] = True
+
+    def italic(self):
+        self.current_style["italic"] = True
+
+    def underline(self):
+        self.current_style["underline"] = True
+
+    def inverse(self):
+        # 反转前景和背景色的简化处理
+        self.current_style["inverse"] = not self.current_style["inverse"]
+
+    def reset_format(self):
+        self.reset()
+
+
+# class AnsiTextFormatter:
+#     @staticmethod
+#     def ansi_to_html(text):
+#         # ANSI 转义序列到 HTML 的映射
+#         ansi_to_html_map = {
+#             r'\x1b\[0m': '</span>',  # 重置
+#             r'\x1b\[1m': '<span style="font-weight:bold;">',  # 粗体
+#             r'\x1b\[3m': '<span style="font-style:italic;">',  # 斜体
+#             r'\x1b\[4m': '<span style="text-decoration:underline;">',  # 下划线
+#             r'\x1b\[30m': '<span style="color:black;">',  # 黑色文本
+#             r'\x1b\[31m': '<span style="color:red;">',    # 红色文本
+#             r'\x1b\[32m': '<span style="color:green;">',  # 绿色文本
+#             r'\x1b\[33m': '<span style="color:yellow;">', # 黄色文本
+#             r'\x1b\[34m': '<span style="color:blue;">',   # 蓝色文本
+#             r'\x1b\[35m': '<span style="color:magenta;">',# 品红文本
+#             r'\x1b\[36m': '<span style="color:cyan;">',   # 青色文本
+#             r'\x1b\[37m': '<span style="color:white;">',  # 白色文本
+#             r'\x1b\[7m': '<span style="background-color:black; color:white;">',  # 反白
+#         }
+
+#         # 替换所有 ANSI 序列
+#         html_text = text
+#         for ansi, html in ansi_to_html_map.items():
+#             html_text = re.sub(ansi, html, html_text)
+
+#         # 确保所有打开的 <span> 都有对应的关闭 </span>
+#         open_tags = html_text.count('<span')
+#         close_tags = html_text.count('</span')
+#         closing_tags_needed = open_tags - close_tags
+#         if closing_tags_needed > 0:
+#             html_text += '</span>' * closing_tags_needed
+
+#         return html_text
+
+
 # 初始化 Colorama
-init()
+# init()
 
 
-class AnsiTextFormatter:
-    def __init__(self, text_edit: QTextEdit):
-        self.text_edit = text_edit
-        self.default_text_char_format = QTextCharFormat()
-        self.escape_sequence_expression = QRegularExpression(r'\x1B\[(\d+(;\d+)*)m')
+# class AnsiTextFormatter:
+#     def __init__(self, text_edit: QTextEdit):
+#         self.text_edit = text_edit
+#         self.default_text_char_format = QTextCharFormat()
+#         self.escape_sequence_expression = QRegularExpression(r'\x1B\[(\d+(;\d+)*)m')
 
-    def parse_escape_sequence(self, sequence, text_char_format):
-        """
-        根据 ANSI 控制码属性对文本格式进行设置。
-        """
-        # 获取属性列表
-        attributes = sequence.split(';')
-        for attribute_str in attributes:
-            try:
-                attribute = int(attribute_str)
-                # 调用解析单个属性的方法
-                self.parse_attribute(attribute, text_char_format)
-            except ValueError:
-                pass  # 忽略无法解析的属性
+#     def parse_escape_sequence(self, sequence, text_char_format):
+#         """
+#         根据 ANSI 控制码属性对文本格式进行设置。
+#         """
+#         # 获取属性列表
+#         attributes = sequence.split(';')
+#         for attribute_str in attributes:
+#             try:
+#                 attribute = int(attribute_str)
+#                 # 调用解析单个属性的方法
+#                 self.parse_attribute(attribute, text_char_format)
+#             except ValueError:
+#                 pass  # 忽略无法解析的属性
 
-    def parse_attribute(self, attribute, text_char_format):
-        """
-        根据单个 ANSI 属性对文本格式进行设置。
-        """
-        # ANSI 属性 0：重置所有属性
-        if attribute == 0:
-            text_char_format = self.default_text_char_format
+#     def parse_attribute(self, attribute, text_char_format):
+#         """
+#         根据单个 ANSI 属性对文本格式进行设置。
+#         """
+#         # ANSI 属性 0：重置所有属性
+#         if attribute == 0:
+#             text_char_format = self.default_text_char_format
 
-        # ANSI 属性 1：粗体
-        elif attribute == 1:
-            text_char_format.setFontWeight(QFont.Bold)
+#         # ANSI 属性 1：粗体
+#         elif attribute == 1:
+#             text_char_format.setFontWeight(QFont.Bold)
 
-        # ANSI 属性 3：斜体
-        elif attribute == 3:
-            text_char_format.setFontItalic(True)
+#         # ANSI 属性 3：斜体
+#         elif attribute == 3:
+#             text_char_format.setFontItalic(True)
 
-        # ANSI 属性 4：下划线
-        elif attribute == 4:
-            text_char_format.setUnderline(True)
+#         # ANSI 属性 4：下划线
+#         elif attribute == 4:
+#             text_char_format.setUnderline(True)
 
-        # ANSI 属性 7：反转
-        elif attribute == 7:
-            foreground = text_char_format.foreground()
-            background = text_char_format.background()
-            text_char_format.setForeground(background)
-            text_char_format.setBackground(foreground)
+#         # ANSI 属性 7：反转
+#         elif attribute == 7:
+#             foreground = text_char_format.foreground()
+#             background = text_char_format.background()
+#             text_char_format.setForeground(background)
+#             text_char_format.setBackground(foreground)
 
-        # ANSI 属性 9：删除线
-        elif attribute == 9:
-            text_char_format.setFontStrikeOut(True)
+#         # ANSI 属性 9：删除线
+#         elif attribute == 9:
+#             text_char_format.setFontStrikeOut(True)
 
-        # ANSI 属性 30-37：前景色
-        elif 30 <= attribute <= 37:
-            color = self.get_color(attribute - 30)
-            text_char_format.setForeground(color)
+#         # ANSI 属性 30-37：前景色
+#         elif 30 <= attribute <= 37:
+#             color = self.get_color(attribute - 30)
+#             text_char_format.setForeground(color)
 
-        # ANSI 属性 40-47：背景色
-        elif 40 <= attribute <= 47:
-            color = self.get_color(attribute - 40)
-            text_char_format.setBackground(color)
+#         # ANSI 属性 40-47：背景色
+#         elif 40 <= attribute <= 47:
+#             color = self.get_color(attribute - 40)
+#             text_char_format.setBackground(color)
 
-        # ANSI 属性 90-97：高强度前景色
-        elif 90 <= attribute <= 97:
-            color = self.get_bright_color(attribute - 90)
-            text_char_format.setForeground(color)
+#         # ANSI 属性 90-97：高强度前景色
+#         elif 90 <= attribute <= 97:
+#             color = self.get_bright_color(attribute - 90)
+#             text_char_format.setForeground(color)
 
-        # ANSI 属性 100-107：高强度背景色
-        elif 100 <= attribute <= 107:
-            color = self.get_bright_color(attribute - 100)
-            text_char_format.setBackground(color)
+#         # ANSI 属性 100-107：高强度背景色
+#         elif 100 <= attribute <= 107:
+#             color = self.get_bright_color(attribute - 100)
+#             text_char_format.setBackground(color)
 
-    def get_color(self, index):
-        """
-        根据索引获取标准 ANSI 颜色。
-        """
-        colors = [
-            QColor('black'), QColor('red'), QColor('green'), QColor('yellow'),
-            QColor('blue'), QColor('magenta'), QColor('cyan'), QColor('white')
-        ]
-        return colors[index]
+#     def get_color(self, index):
+#         """
+#         根据索引获取标准 ANSI 颜色。
+#         """
+#         colors = [
+#             QColor('black'), QColor('red'), QColor('green'), QColor('yellow'),
+#             QColor('blue'), QColor('magenta'), QColor('cyan'), QColor('white')
+#         ]
+#         return colors[index]
 
-    def get_bright_color(self, index):
-        """
-        根据索引获取高强度 ANSI 颜色。
-        """
-        colors = [
-            QColor('darkGray'), QColor('darkRed'), QColor('darkGreen'),
-            QColor('darkYellow'), QColor('darkBlue'), QColor('darkMagenta'),
-            QColor('darkCyan'), QColor('lightGray')
-        ]
-        return colors[index]
-    
-    def set_text_formatting(self, text):
-        """设置文本格式化"""
-        # 获取 QTextDocument 对象
-        document = self.text_edit.document()
-        
-        # 使用 QTextCursor 来进行文本编辑
-        cursor = QTextCursor(document)
-        
-        # 设定初始光标位置
-        cursor.movePosition(QTextCursor.Start)
-        
-        # 初始化文本格式为默认格式
-        text_char_format = self.default_text_char_format
-        
-        # 开始文本编辑块
-        cursor.beginEditBlock()
-        
-        # 定义起始偏移量
-        offset = 0
-        
-        # 使用 QRegularExpression 查找匹配的 ANSI 转义序列
-        while True:
-            match = self.escape_sequence_expression.match(text, offset)
-            if not match.hasMatch():
-                # 如果没有匹配，插入剩余文本并跳出循环
-                remaining_text = text[offset:]
-                cursor.insertText(remaining_text, text_char_format)
-                break
-            
-            # 获取匹配的起始位置和长度
-            start_pos = match.capturedStart()
-            match_length = match.capturedLength()
-            
-            # 插入匹配位置前的普通文本
-            normal_text = text[offset:start_pos]
-            cursor.insertText(normal_text, text_char_format)
-            
-            # 更新偏移量到匹配位置后的位置
-            offset = start_pos + match_length
-            
-            # 获取匹配到的 ANSI 转义序列
-            ansi_sequence = match.captured(1)
-            
-            # 将 ANSI 转义序列转换为字符串列表
-            attributes = ansi_sequence.split(';')
-            
-            # 遍历解析出来的属性并调用 `parse_escape_sequence`
-            for attribute in attributes:
-                # 将属性转换为整数类型
-                attribute_int = int(attribute)
-                
-                # 调用 `parse_escape_sequence` 方法
-                self.parse_escape_sequence(attribute_int, text_char_format)
-            
-        # 结束文本编辑块
-        cursor.endEditBlock()
+#     def get_bright_color(self, index):
+#         """
+#         根据索引获取高强度 ANSI 颜色。
+#         """
+#         colors = [
+#             QColor('darkGray'), QColor('darkRed'), QColor('darkGreen'),
+#             QColor('darkYellow'), QColor('darkBlue'), QColor('darkMagenta'),
+#             QColor('darkCyan'), QColor('lightGray')
+#         ]
+#         return colors[index]
+
+#     def set_text_formatting(self, text):
+#         """设置文本格式化"""
+#         # 获取 QTextDocument 对象
+#         document = self.text_edit.document()
+
+#         # 使用 QTextCursor 来进行文本编辑
+#         cursor = QTextCursor(document)
+
+#         # 设定初始光标位置
+#         cursor.movePosition(QTextCursor.Start)
+
+#         # 初始化文本格式为默认格式
+#         text_char_format = self.default_text_char_format
+
+#         # 开始文本编辑块
+#         cursor.beginEditBlock()
+
+#         # 定义起始偏移量
+#         offset = 0
+
+#         # 使用 QRegularExpression 查找匹配的 ANSI 转义序列
+#         while True:
+#             match = self.escape_sequence_expression.match(text, offset)
+#             if not match.hasMatch():
+#                 # 如果没有匹配，插入剩余文本并跳出循环
+#                 remaining_text = text[offset:]
+#                 cursor.insertText(remaining_text, text_char_format)
+#                 break
+
+#             # 获取匹配的起始位置和长度
+#             start_pos = match.capturedStart()
+#             match_length = match.capturedLength()
+
+#             # 插入匹配位置前的普通文本
+#             normal_text = text[offset:start_pos]
+#             cursor.insertText(normal_text, text_char_format)
+
+#             # 更新偏移量到匹配位置后的位置
+#             offset = start_pos + match_length
+
+#             # 获取匹配到的 ANSI 转义序列
+#             ansi_sequence = match.captured(1)
+
+#             # 将 ANSI 转义序列转换为字符串列表
+#             attributes = ansi_sequence.split(';')
+
+#             # 遍历解析出来的属性并调用 `parse_escape_sequence`
+#             for attribute in attributes:
+#                 # 将属性转换为整数类型
+#                 attribute_int = int(attribute)
+
+#                 # 调用 `parse_escape_sequence` 方法
+#                 self.parse_escape_sequence(attribute_int, text_char_format)
+
+#         # 结束文本编辑块
+#         cursor.endEditBlock()
