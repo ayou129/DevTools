@@ -1,8 +1,17 @@
 {
     "terminals": {
-        "2": {
+        "1": {
             "name": "2",
             "host": "127.0.0.1",
+            "port": "22",
+            "auth_method": "\u5bc6\u7801",
+            "username": "liguoxin",
+            "password": "li680910",
+            "private_key": null
+        },
+        "2": {
+            "name": "2",
+            "host": "192.168.31.20",
             "port": "22",
             "auth_method": "\u5bc6\u7801",
             "username": "liguoxin",
