@@ -559,7 +559,7 @@ class TerminalConnection:
             self.channel = None
             self.is_running = True
             self.terminal_output = terminal_output  # 终端输出组件
-            self.ansi_formatter = TerminalEmulator()
+            
             # self.first_connect = True
 
         def run(self):
@@ -571,10 +571,6 @@ class TerminalConnection:
                 if self.channel.recv_ready():
                     # 读取终端输出并解码
                     output = self.channel.recv(4096).decode("utf-8")
-                    # print(output)
-
-                    output = self.ansi_formatter.parse(output)
-
                     # print(output)
 
                     self.output_signal.emit(output)
@@ -612,6 +608,7 @@ class TerminalConnection:
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         self.reading_thread = None
+        self.ansi_formatter = TerminalEmulator()
 
     def connect(self):
         """连接 SSH 并启动读取线程"""
@@ -648,13 +645,8 @@ class TerminalConnection:
 
     def p_output(self, parse_content):
         print(parse_content)
-        if isinstance(parse_content, dict) and "title" in parse_content:
-            if parse_content["title"].strip():  # 检查 title 是否非空或非只有空白字符
-                self.terminal_tab.setWindowTitle(parse_content["title"])
-
-        if isinstance(parse_content, dict) and "content" in parse_content:
-            if parse_content["content"].strip():
-                self.terminal_output.append(parse_content["content"])
+        title, context, c = self.ansi_formatter.parse(parse_content)
+        self.terminal_output.append(context)
 
     def send_command(self, command):
         # print(command)
@@ -713,45 +705,47 @@ class TerminalEmulator:
         }
 
     def parse(self, text):
+        print(text)
         s = text
         title = ""
-        # 解析 ANSI 转义序列
-        ## 解析窗口标题，找出标题内容，存储到title待会儿返回，然后删除开头至结尾的内容
-        # 先提取标题内容
-        title_pattern = re.compile(r"\x1b\]2;([^\x07]+)\x07")
-        match = title_pattern.search(s)
-        if match:
-            title = match.group(1)
-            # 提取标题前的内容和标题后的内容
-            start_index = match.start()
-            title_start = s[:start_index]
-            title_end = s[match.end() :]
-            # 删除标题序列
-            s = title_pattern.sub("", s)
-            # 在标题前的内容中检查并删除百分号
-            title_start = title_start.replace("%", "")
-            # 重新组合字符串
-            s = title_start + title_end
-        print(1, s)
-        # 提取其他转义序列
-        patterns = {
-            "short_title": re.compile(r"\x1b\]1;([^\x07]+)\x07"),
-            "clear_screen": re.compile(r"\x1b\[J"),
-            "clear_line": re.compile(r"\x1b\[K"),
-            "app_mode": re.compile(r"\x1b\[\?1h"),
-            "paste_mode": re.compile(r"\x1b\[\?2004h"),
-        }
-        
         sequences = {}
-        for key, pattern in patterns.items():
-            match = pattern.search(s)
-            if match:
-                sequences[key] = match.group()
-                # 删除匹配的序列
-                s = pattern.sub("", s)
-        print(2, s)
+        # # 解析窗口标题
+        # title_pattern = re.compile(r"\x1b\]2;([^\x07]+)\x07")
+        # match = title_pattern.search(s)
+        # if match:
+        #     title = match.group(1)
+        #     # 精确地定位和移除标题序列，避免影响后续匹配
+        #     start_index = match.start()
+        #     end_index = match.end()
+        #     s = s[:start_index] + s[end_index:]
+        #     # 删除标题序列前后可能的干扰字符，比如百分号
+        #     s = s.replace("%", "")
+
+        # print(1, text, s, title)
+
+        # # 初始化存储其他转义序列的字典
+
+        # # 定义并应用其他转义序列的正则表达式
+        # patterns = {
+        #     "short_title": re.compile(r"\x1b\]1;([^\x07]+)\x07"),
+        #     "clear_screen": re.compile(r"\x1b\[J"),
+        #     "clear_line": re.compile(r"\x1b\[K"),
+        #     "app_mode": re.compile(r"\x1b\[\?1h"),
+        #     "paste_mode": re.compile(r"\x1b\[\?2004h"),
+        # }
+
+        # # 避免无限循环：先找出所有匹配项的位置，再按位置从前往后替换
+        # for key, pattern in patterns.items():
+        #     matches = list(pattern.finditer(s))
+        #     for match in reversed(matches):  # 逆序处理以避免索引变动
+        #         sequences[key] = match.group()
+        #         # 根据匹配对象安全地移除序列
+        #         s = s[: match.start()] + s[match.end() :]
+
+        # print(2, s)
+
         # 结果输出
-        return {"title": title, "content": s, "extracted_sequences": sequences}
+        return title, s, sequences
 
     # def parse(self, text):
     #     # 将终端返回的文本进行处理：解析 ANSI 转义序列并应用样式
